@@ -3,10 +3,10 @@ from datetime import datetime
 from typing import Optional, List
 from sqlalchemy import (
     String, Text, Boolean, Integer, Numeric, DateTime, ForeignKey,
-    Enum as SQLEnum, ARRAY
+    Enum as SQLEnum, JSON
 )
 from sqlalchemy.orm import Mapped, mapped_column, relationship
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, ARRAY
 import enum
 from app.db.base import Base
 
@@ -47,7 +47,7 @@ class Job(Base):
     location_city: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     work_location_type: Mapped[str] = mapped_column(String(50), default="overseas", nullable=False)
     
-    visa_required: Mapped[bool] = mapped_column(Boolean, default=false_value := False, nullable=False)
+    visa_required: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False)
     visa_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     employment_type: Mapped[str] = mapped_column(String(50), default="full_time", nullable=False)
     
@@ -68,7 +68,7 @@ class Job(Base):
     
     urgent: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
     featured: Mapped[bool] = mapped_column(Boolean, default=False, nullable=False, index=True)
-    skills: Mapped[List[str]] = mapped_column(ARRAY(String), default=list, nullable=False)
+    skills: Mapped[List[str]] = mapped_column(ARRAY(String).with_variant(JSON, "sqlite"), default=list, nullable=False)
     openings_count: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     
     deadline: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)

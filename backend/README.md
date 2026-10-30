@@ -104,6 +104,64 @@ Interactive Swagger API documentation will be available at:
 
 ---
 
+## Render deployment
+
+The repository includes a Render Blueprint at `../render.yaml`. It deploys:
+
+- `ugetjob-api`: Dockerized FastAPI service rooted in this `backend` directory.
+- `ugetjob-docs`: Static Vite frontend/API console.
+
+### 1. Deploy through Render
+
+1. Push the repository to GitHub or GitLab.
+2. In Render, choose **New → Blueprint** and select the repository.
+3. Render will detect `render.yaml` and create both services.
+4. In the pending environment-variable prompts, enter the production Supabase and allowed-origin values.
+
+### 2. Required API environment variables
+
+| Variable | Value |
+|---|---|
+| `DATABASE_URL` | Supabase async PostgreSQL URL, for example `postgresql+asyncpg://...` |
+| `SUPABASE_URL` | Project URL |
+| `SUPABASE_KEY` | Anon/publishable key |
+| `SUPABASE_SERVICE_ROLE_KEY` | Service-role key; keep this secret |
+| `ALLOWED_ORIGINS` | Comma-separated frontend URLs |
+
+Render supplies `PORT` automatically. The Dockerfile uses it when starting Uvicorn.
+
+After deployment, verify `https://YOUR-SERVICE.onrender.com/api/health` and `https://YOUR-SERVICE.onrender.com/docs`.
+
+---
+
+## Deploying to Render
+
+The repository includes `render.yaml` at its root and deploys both the FastAPI API and the Vite frontend.
+
+1. Push the repository to GitHub or GitLab.
+2. In Render, select **New → Blueprint** and connect this repository.
+3. Review the proposed `ugetjob-api` and `ugetjob-console` services.
+4. Enter the required environment values for `ugetjob-api`.
+
+Required API variables:
+
+- `DATABASE_URL`: Supabase PostgreSQL URL using the `postgresql+asyncpg://` driver.
+- `SUPABASE_URL`: Supabase project URL.
+- `SUPABASE_KEY`: Supabase anon/publishable key.
+- `SUPABASE_SERVICE_ROLE_KEY`: Supabase service-role key. Keep it secret.
+- `ALLOWED_ORIGINS`: Comma-separated frontend URLs, including the final Render frontend URL.
+
+Render supplies `PORT` automatically. The Dockerfile starts Uvicorn on that port.
+
+After deployment, verify:
+
+- API health: `https://YOUR-API-SERVICE.onrender.com/api/health`
+- API documentation: `https://YOUR-API-SERVICE.onrender.com/docs`
+
+The existing frontend console contains local-development URLs. Set or update these to the deployed API URL before relying on the console's code snippets.
+
+---
+
 ## 📡 API Testing Examples (cURL)
 
 ### 1. Search Live Jobs
