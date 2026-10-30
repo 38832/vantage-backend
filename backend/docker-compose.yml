@@ -1,0 +1,34 @@
+version: '3.8'
+
+services:
+  api:
+    build: .
+    container_name: ugetjob-fastapi-backend
+    ports:
+      - "8000:8000"
+    environment:
+      - APP_NAME=ugetjob-backend
+      - DATABASE_URL=postgresql+asyncpg://postgres:postgres@postgres:5432/ugetjob
+      - SUPABASE_URL=https://your-supabase-project.supabase.co
+      - SUPABASE_KEY=your-supabase-anon-key
+      - SUPABASE_SERVICE_ROLE_KEY=your-supabase-service-role-key
+      - ALLOWED_ORIGINS=http://localhost:3000,http://localhost:5173,https://ugetjob.com
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  postgres:
+    image: postgres:15-alpine
+    container_name: ugetjob-local-db
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ugetjob
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ../database/schema.sql:/docker-entrypoint-initdb.d/init.sql
+
+volumes:
+  postgres_data:

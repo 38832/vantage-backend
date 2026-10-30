@@ -1,0 +1,1203 @@
+Below is a practical backend specification document you can paste directly into Google AI Studio to generate the FastAPI + SQLAlchemy + Supabase backend.
+
+---
+Backend Specification Document: UGETJOB — Global Workforce Solutions (Nouman’s Manpower Consultancy)
+
+Project context:
+- This frontend is a static HTML/Tailwind landing page plus a job portal/admin ATS UI.
+- The repo currently contains a single frontend page (`public/ugetjob.html`) with view switching between:
+  - Landing page / marketing site
+  - Jobs portal
+  - Admin ATS portal
+- The backend must support:
+  - public job listing/search
+  - candidate quick apply + resume upload
+  - employer manpower inquiry submissions
+  - service requests (recruitment / visa / documentation / mobilization)
+  - admin ATS workflow for candidates
+
+Important note:
+- There are no actual frontend fetch calls in the repo as presented, so the API contract below is reverse-engineered from:
+  - UI sections
+  - modal forms
+  - visible status values
+  - job search/filter intent
+  - ATS job workflow labels
+- This is the clean contract a backend should implement.
+
+1. Database Schema Requirements
+
+1.1 Core design principle
+Use PostgreSQL in Supabase with:
+- UUID primary keys
+- timestamptz for timestamps
+- enum types for statuses
+- foreign keys for relations
+- JSONB for flexible metadata where needed
+- storage bucket for resume and document files
+
+1.2 Table list
+- job_categories
+- jobs
+- candidates
+- applications
+- employers
+- employer_inquiries
+- service_requests
+- application_documents
+- job_search_activity (optional but useful)
+- ats_notes (optional but useful)
+- admin_users (optional)
+- audit_logs (optional)
+
+1.3 Table definitions
+
+Table: job_categories
+Purpose: controlled categories / sectors / industries for job search and filters
+
+SQL:
+```sql
+CREATE TABLE IF NOT EXISTS job_categories (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    slug TEXT NOT NULL UNIQUE,
+    name TEXT NOT NULL,
+    description TEXT,
+    parent_category_id UUID NULL REFERENCES job_categories(id),
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+Typical values:
+- engineering
+- construction
+- electrician
+- nurse
+- healthcare
+- hospitality
+- oil-and-gas
+- logistics
+- security
+- driver
+- technician
+- admin
+- others
+
+Table: jobs
+Purpose: live job listings shown to candidates and admin ATS
+
+SQL:
+```sql
+CREATE TYPE job_status AS ENUM ('draft', 'published', 'paused', 'closed', 'filled');
+
+CREATE TABLE IF NOT EXISTS jobs (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    category_id UUID NOT NULL REFERENCES job_categories(id),
+    title TEXT NOT NULL,
+    company_name TEXT NOT NULL,
+    employer_contact_name TEXT,
+    employer_email TEXT,
+    employer_phone TEXT,
+    location_country TEXT NOT NULL,
+    location_city TEXT,
+    work_location_type TEXT NOT NULL DEFAULT 'overseas', -- overseas, domestic, hybrid, remote
+    visa_required BOOLEAN NOT NULL DEFAULT false,
+    visa_type TEXT,
+    employment_type TEXT NOT NULL, -- full_time, contract, temporary, project_based
+    experience_min INTEGER NOT NULL DEFAULT 0,
+    experience_max INTEGER,
+    age_min INTEGER,
+    age_max INTEGER,
+    gender_preference TEXT,
+    nationality_preference TEXT,
+    salary_min NUMERIC(12,2),
+    salary_max NUMERIC(12,2),
+    salary_currency TEXT DEFAULT 'INR',
+    job_description TEXT NOT NULL,
+    requirements TEXT,
+    benefits TEXT,
+    urgent BOOLEAN NOT NULL DEFAULT false,
+    featured BOOLEAN NOT NULL DEFAULT false,
+    skills TEXT[],
+    openings_count INTEGER NOT NULL DEFAULT 1,
+    deadline TIMESTAMPTZ,
+    posted_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    expires_at TIMESTAMPTZ,
+    status job_status NOT NULL DEFAULT 'published',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+Table: candidates
+Purpose: normalized candidate profile info from quick apply / application forms
+
+SQL:
+```sql
+CREATE TABLE IF NOT EXISTS candidates (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    full_name TEXT NOT NULL,
+    email TEXT,
+    phone TEXT NOT NULL,
+    whatsapp TEXT,
+    nationality TEXT,
+    current_country TEXT,
+    current_city TEXT,
+    passport_status TEXT, -- not_applied, ready, in_process, expired, not_required
+    passport_number TEXT,
+    passport_expiry DATE,
+    years_experience INTEGER,
+    current_role TEXT,
+    current_salary NUMERIC(12,2),
+    preferred_country TEXT,
+    preferred_city TEXT,
+    preferred_job_category TEXT,
+    visa_status TEXT, -- not_required, required, ready, in_process
+    notice_period TEXT,
+    willing_to_relocate BOOLEAN DEFAULT false,
+    has_resume BOOLEAN NOT NULL DEFAULT false,
+    resume_url TEXT,
+    cover_letter TEXT,
+    source TEXT DEFAULT 'website',
+    consent_to_contact BOOLEAN NOT NULL DEFAULT false,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+Table: applications
+Purpose: job-specific application records and ATS tracking
+
+SQL:
+```sql
+CREATE TYPE application_status AS ENUM (
+    'new',
+    'contacted',
+    'shortlisted',
+    'interview_scheduled',
+    'interviewed',
+    'document_pending',
+    'medical_pending',
+    'visa_pending',
+    'visa_approved',
+    'rejected',
+    'hired',
+    'archived'
+);
+
+CREATE TABLE IF NOT EXISTS applications (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    candidate_id UUID NOT NULL REFERENCES candidates(id),
+    job_id UUID REFERENCES jobs(id),
+    source_channel TEXT DEFAULT 'job_portal',
+    application_status application_status NOT NULL DEFAULT 'new',
+    recruiter_assigned TEXT,
+    shortlisted_by TEXT,
+    interview_date TIMESTAMPTZ,
+    interview_notes TEXT,
+    document_status TEXT,
+    medical_status TEXT,
+    visa_status TEXT,
+    notes TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+Table: employers
+Purpose: employer/company/contact records for inbound manpower requests
+
+SQL:
+```sql
+CREATE TABLE IF NOT EXISTS employers (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    company_name TEXT NOT NULL,
+    contact_name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    company_type TEXT,
+    industry TEXT,
+    country TEXT,
+    city TEXT,
+    website TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+Table: employer_inquiries
+Purpose: “Hire Talent / Request manpower” form submissions
+
+SQL:
+```sql
+CREATE TABLE IF NOT EXISTS employer_inquiries (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    employer_id UUID REFERENCES employers(id),
+    company_name TEXT NOT NULL,
+    contact_name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    requirement_type TEXT NOT NULL, -- manpower, project_hire, specialist, custom
+    industry TEXT,
+    job_title TEXT,
+    number_of_positions INTEGER,
+    country TEXT,
+    city TEXT,
+    work_location TEXT,
+    budget_range TEXT,
+    urgency TEXT,
+    timeline TEXT,
+    notes TEXT,
+    source TEXT DEFAULT 'website',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+Table: service_requests
+Purpose: service CTA forms from landing page (recruitment / documentation / visa / mobilization)
+
+SQL:
+```sql
+CREATE TABLE IF NOT EXISTS service_requests (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    service_type TEXT NOT NULL, -- recruitment, documentation, visa, mobilization
+    company_name TEXT,
+    contact_name TEXT NOT NULL,
+    email TEXT NOT NULL,
+    phone TEXT NOT NULL,
+    city TEXT,
+    notes TEXT,
+    source TEXT DEFAULT 'website',
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+Table: application_documents
+Purpose: candidate resume / supporting documents
+
+SQL:
+```sql
+CREATE TABLE IF NOT EXISTS application_documents (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    application_id UUID REFERENCES applications(id),
+    candidate_id UUID REFERENCES candidates(id),
+    document_type TEXT NOT NULL, -- resume, passport, certificate, photo, other
+    original_filename TEXT NOT NULL,
+    storage_bucket TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    mime_type TEXT,
+    file_size_bytes BIGINT,
+    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+Table: job_search_activity (optional but recommended)
+Purpose: understand search behavior and improve filtering
+
+SQL:
+```sql
+CREATE TABLE IF NOT EXISTS job_search_activity (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    search_term TEXT,
+    category TEXT,
+    country TEXT,
+    city TEXT,
+    visa_status TEXT,
+    experience_min INTEGER,
+    experience_max INTEGER,
+    result_count INTEGER,
+    user_ip TEXT,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+Table: ats_notes (optional)
+Purpose: internal recruiter notes and comments
+
+SQL:
+```sql
+CREATE TABLE IF NOT EXISTS ats_notes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    application_id UUID NOT NULL REFERENCES applications(id),
+    author_name TEXT NOT NULL,
+    note TEXT NOT NULL,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+Table: admin_users (optional)
+Purpose: admin login / role-based access
+
+SQL:
+```sql
+CREATE TABLE IF NOT EXISTS admin_users (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    email TEXT NOT NULL UNIQUE,
+    full_name TEXT NOT NULL,
+    password_hash TEXT NOT NULL,
+    role TEXT NOT NULL DEFAULT 'admin', -- admin, recruiter, manager
+    is_active BOOLEAN NOT NULL DEFAULT true,
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+```
+
+1.4 Fields explicitly expected from frontend
+These are the form inputs and selectors the frontend is capturing or implying.
+
+A. Job search / filter UI
+- keyword
+- country
+- city
+- category / sector
+- experience_min
+- experience_max
+- visa_status
+- employment_type
+- salary_range
+- urgent_only
+- featured_only
+
+B. Quick apply / candidate form
+- full_name
+- email
+- phone
+- whatsapp
+- nationality
+- current_country
+- current_city
+- passport_status
+- passport_number
+- passport_expiry
+- years_experience
+- current_role
+- current_salary
+- preferred_country
+- preferred_city
+- preferred_job_category
+- visa_status
+- notice_period
+- willing_to_relocate
+- resume upload
+- cover_letter
+- consent_to_contact
+
+C. Employer inquiry form
+- company_name
+- contact_name
+- email
+- phone
+- requirement_type
+- industry
+- job_title
+- number_of_positions
+- country
+- city
+- work_location
+- budget_range
+- urgency
+- timeline
+- notes
+
+D. Service request form
+- service_type
+- company_name
+- contact_name
+- email
+- phone
+- city
+- notes
+
+E. Admin ATS / status fields
+- application_status
+- recruiter_assigned
+- interview_date
+- interview_notes
+- shortlisted_by
+- document_status
+- medical_status
+- visa_status
+- notes
+- rejection_reason (optional)
+- hired flag / joining status
+
+1.5 Required dropdown values (inferred)
+These are values the frontend likely compares against.
+
+Job category / sector values:
+- construction
+- engineering
+- nursing
+- healthcare
+- hospitality
+- oil_and_gas
+- electrical
+- plumbing
+- civil
+- hvac
+- logistics
+- security
+- driver
+- housekeeping
+- admin
+- warehouse
+- general_labour
+- other
+
+Passport status:
+- not_applied
+- ready
+- in_process
+- expired
+- not_required
+
+Visa status:
+- not_required
+- required
+- ready
+- in_process
+- approved
+- rejected
+
+Employment type:
+- full_time
+- contract
+- temporary
+- project_based
+
+Application statuses:
+- new
+- contacted
+- shortlisted
+- interview_scheduled
+- interviewed
+- document_pending
+- medical_pending
+- visa_pending
+- visa_approved
+- rejected
+- hired
+- archived
+
+Urgency:
+- urgent
+- normal
+- custom
+
+2. File Storage Requirements
+
+The frontend clearly supports candidate resume uploads and possibly document uploads for job-related applications.
+
+2.1 Storage bucket requirements
+Recommended Supabase Storage buckets:
+- candidate-resumes
+- company-documents
+- job-attachments
+- admin-exports (optional)
+
+2.2 Candidate resume bucket config
+Bucket: candidate-resumes
+- public: false
+- file size limit: 5 MB to 10 MB
+- allowed MIME types:
+  - application/pdf
+  - application/msword
+  - application/vnd.openxmlformats-officedocument.wordprocessingml.document
+- allowed extensions:
+  - .pdf
+  - .doc
+  - .docx
+- optional image upload:
+  - .jpg, .jpeg, .png for profile photo only if needed
+
+Bucket policy idea:
+- Users can upload only their own files
+- Admins can read application documents
+- Public read only on required files if using signed URLs
+
+2.3 Employer document bucket
+Bucket: company-documents
+- file size limit: 10 MB
+- allowed types:
+  - pdf
+  - doc/docx
+  - jpeg/png
+
+2.4 Job attachment bucket
+Bucket: job-attachments
+- optional job poster docs / certificates / onboarding docs
+
+2.5 Recommended storage paths
+- candidate-resumes/{year}/{month}/{application_id}/{filename}
+- company-documents/{company_name}/{filename}
+- job-attachments/{job_id}/{filename}
+
+3. Required REST API Endpoints
+
+The frontend indicates the following backend routes are needed.
+
+3.1 Public endpoints
+
+GET /api/health
+Purpose: server health check
+Response:
+```json
+{
+  "status": "ok",
+  "service": "ugetjob-backend"
+}
+```
+
+GET /api/categories
+Purpose: load category list and sectors matrix
+Response:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "slug": "electrical",
+      "name": "Electrical",
+      "description": "Electrical and maintenance jobs"
+    }
+  ]
+}
+```
+
+GET /api/jobs
+Purpose: list all jobs and filter/search
+Query params:
+- keyword
+- category
+- country
+- city
+- employment_type
+- visa_status
+- experience_min
+- experience_max
+- urgent_only
+- featured_only
+- page
+- limit
+Example:
+```http
+GET /api/jobs?country=UAE&category=engineering&visa_status=required&limit=20&page=1
+```
+Response:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "title": "Site Electrician",
+      "company_name": "Gulf Contractors",
+      "location_country": "UAE",
+      "location_city": "Dubai",
+      "employment_type": "full_time",
+      "visa_required": true,
+      "experience_min": 3,
+      "experience_max": 8,
+      "salary_min": 1800,
+      "salary_max": 3000,
+      "salary_currency": "AED",
+      "urgent": true,
+      "featured": false,
+      "status": "published"
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "limit": 20,
+    "total": 128
+  }
+}
+```
+
+GET /api/jobs/{job_id}
+Purpose: fetch a single job
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "title": "Substation Electrical Foreman",
+    "company_name": "KSA Red Sea Project",
+    "job_description": "...",
+    "requirements": "...",
+    "benefits": "...",
+    "salary_min": 2500,
+    "salary_max": 4200,
+    "salary_currency": "SAR",
+    "location_country": "Saudi Arabia",
+    "location_city": "Jeddah",
+    "employment_type": "project_based",
+    "visa_required": true,
+    "skills": ["electrical", "maintenance", "supervision"],
+    "openings_count": 12
+  }
+}
+```
+
+POST /api/applications/quick-apply
+Purpose: standard candidate quick apply
+Request body:
+```json
+{
+  "job_id": "uuid",
+  "full_name": "Mohd Basheer",
+  "email": "candidate@example.com",
+  "phone": "+971500000000",
+  "whatsapp": "+971500000000",
+  "nationality": "Indian",
+  "current_country": "India",
+  "current_city": "Kochi",
+  "passport_status": "ready",
+  "passport_number": "P1234567",
+  "passport_expiry": "2028-06-30",
+  "years_experience": 7,
+  "current_role": "HVAC Chiller Specialist",
+  "current_salary": 350000,
+  "preferred_country": "Saudi Arabia",
+  "preferred_city": "Riyadh",
+  "preferred_job_category": "hvac",
+  "visa_status": "required",
+  "notice_period": "30 days",
+  "willing_to_relocate": true,
+  "cover_letter": "Interested in long-term Gulf placement.",
+  "consent_to_contact": true
+}
+```
+Multipart form file upload variant:
+- field: `resume` (file)
+- fields: same JSON values as form fields or multipart form-data
+Expected response:
+```json
+{
+  "success": true,
+  "data": {
+    "application_id": "uuid",
+    "candidate_id": "uuid",
+    "resume_url": "https://.../candidate-resumes/..."
+  }
+}
+```
+
+POST /api/applications/{application_id}/documents
+Purpose: upload supporting docs (resume / passport / certificate)
+Request: multipart/form-data
+Form fields:
+- `application_id`
+- `document_type`
+- `file`
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "application_id": "uuid",
+    "document_type": "resume",
+    "storage_path": "candidate-resumes/..."
+  }
+}
+```
+
+POST /api/inquiries/employer
+Purpose: employer manpower inquiry
+Request body:
+```json
+{
+  "company_name": "Riyadh Metro Works",
+  "contact_name": "Ali Khan",
+  "email": "ali@company.com",
+  "phone": "+966500000000",
+  "requirement_type": "manpower",
+  "industry": "construction",
+  "job_title": "Electrical Foreman",
+  "number_of_positions": 12,
+  "country": "Saudi Arabia",
+  "city": "Riyadh",
+  "work_location": "overseas",
+  "budget_range": "SAR 2500-4000",
+  "urgency": "urgent",
+  "timeline": "within 2 weeks",
+  "notes": "Need qualified professionals for project site"
+}
+```
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "status": "received"
+  }
+}
+```
+
+POST /api/inquiries/service
+Purpose: service form requests
+Request body:
+```json
+{
+  "service_type": "visa",
+  "company_name": "ABC Logistics",
+  "contact_name": "Nadia",
+  "email": "nadia@example.com",
+  "phone": "+971500123456",
+  "city": "Dubai",
+  "notes": "Need help with visa and documentation for 5 workers."
+}
+```
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "status": "received"
+  }
+}
+```
+
+3.2 Admin endpoints
+
+GET /api/admin/ats/applications
+Purpose: admin view of all candidate applications
+Query:
+- status
+- recruiter_assigned
+- page
+- limit
+- search
+Response:
+```json
+{
+  "success": true,
+  "data": [
+    {
+      "id": "uuid",
+      "candidate_name": "Mohd Basheer",
+      "job_title": "HVAC Chiller Specialist",
+      "status": "shortlisted",
+      "recruiter_assigned": "Nouman",
+      "interview_date": "2026-11-05T10:00:00Z",
+      "created_at": "2026-10-30T09:00:00Z"
+    }
+  ],
+  "meta": {
+    "page": 1,
+    "limit": 20,
+    "total": 50
+  }
+}
+```
+
+PATCH /api/admin/ats/applications/{application_id}
+Purpose: update ATS status and notes
+Request body:
+```json
+{
+  "application_status": "interview_scheduled",
+  "recruiter_assigned": "Nouman",
+  "interview_date": "2026-11-05T10:00:00Z",
+  "interview_notes": "Candidate has valid GCC experience and visa ready.",
+  "document_status": "pending",
+  "medical_status": "pending",
+  "visa_status": "not_started",
+  "notes": "Strong candidate, requires follow-up on passport renewal"
+}
+```
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "id": "uuid",
+    "application_status": "interview_scheduled"
+  }
+}
+```
+
+POST /api/admin/ats/applications/{application_id}/notes
+Purpose: add internal recruiter note
+Request body:
+```json
+{
+  "author_name": "Nouman",
+  "note": "Candidate is suitable for UAE hospital project. Passport valid for 5 years."
+}
+```
+
+PATCH /api/admin/jobs/{job_id}
+Purpose: update a job listing status or details
+Request body:
+```json
+{
+  "status": "paused",
+  "featured": true,
+  "urgent": true,
+  "openings_count": 5
+}
+```
+
+DELETE /api/admin/jobs/{job_id}
+Purpose: remove or archive a job
+Response:
+```json
+{
+  "success": true,
+  "deleted": true
+}
+```
+
+GET /api/admin/dashboard
+Purpose: ATS summary KPIs
+Response:
+```json
+{
+  "success": true,
+  "data": {
+    "new_applications": 45,
+    "shortlisted": 22,
+    "interview_scheduled": 12,
+    "visa_pending": 9,
+    "hired": 3
+  }
+}
+```
+
+3.3 Optional but useful endpoints
+- GET /api/jobs/featured
+- GET /api/jobs/urgent
+- GET /api/jobs/search/suggestions
+- GET /api/applications/{candidate_id}
+- POST /api/contact
+- POST /api/whatsapp-link
+- POST /api/subscribe (optional newsletter)
+
+4. FastAPI + SQLAlchemy Architecture Blueprint
+
+4.1 Recommended folder structure
+```bash
+backend/
+├── app/
+│   ├── api/
+│   │   ├── deps.py
+│   │   ├── routes/
+│   │   │   ├── jobs.py
+│   │   │   ├── applications.py
+│   │   │   ├── inquiries.py
+│   │   │   ├── admin.py
+│   │   │   └── health.py
+│   ├── core/
+│   │   ├── config.py
+│   │   ├── security.py
+│   │   └── logging.py
+│   ├── db/
+│   │   ├── base.py
+│   │   ├── session.py
+│   │   └── init_db.py
+│   ├── models/
+│   │   ├── job.py
+│   │   ├── candidate.py
+│   │   ├── application.py
+│   │   ├── employer.py
+│   │   ├── inquiry.py
+│   │   ├── service_request.py
+│   │   └── document.py
+│   ├── schemas/
+│   │   ├── job.py
+│   │   ├── candidate.py
+│   │   ├── application.py
+│   │   ├── inquiry.py
+│   │   └── response.py
+│   ├── services/
+│   │   ├── supabase_storage.py
+│   │   ├── job_service.py
+│   │   ├── application_service.py
+│   │   └── ats_service.py
+│   ├── main.py
+│   └── __init__.py
+├── requirements.txt
+├── .env
+└── alembic/
+```
+
+4.2 Supabase PostgreSQL connection using SQLAlchemy
+Use async SQLAlchemy and `asyncpg`.
+
+`app/core/config.py`
+```python
+from pydantic_settings import BaseSettings
+
+class Settings(BaseSettings):
+    app_name: str = "ugetjob-backend"
+    database_url: str
+    supabase_url: str
+    supabase_key: str
+    supabase_service_role_key: str
+    allowed_origins: str = "http://localhost:3000,https://ugetjob.com,https://www.ugetjob.com"
+
+    class Config:
+        env_file = ".env"
+
+settings = Settings()
+```
+
+`app/db/session.py`
+```python
+from sqlalchemy.ext.asyncio import create_async_engine, AsyncSession
+from sqlalchemy.orm import sessionmaker
+from app.core.config import settings
+
+engine = create_async_engine(settings.database_url, echo=False, future=True)
+AsyncSessionLocal = sessionmaker(
+    bind=engine,
+    class_=AsyncSession,
+    expire_on_commit=False,
+    autoflush=False
+)
+
+async def get_db():
+    async with AsyncSessionLocal() as session:
+        yield session
+```
+
+4.3 Base model and declarative setup
+```python
+from sqlalchemy.orm import DeclarativeBase
+
+class Base(DeclarativeBase):
+    pass
+```
+
+4.4 FastAPI app startup
+`app/main.py`
+```python
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from app.api.routes import jobs, applications, inquiries, admin, health
+from app.core.config import settings
+
+app = FastAPI(title="UGETJOB Backend", version="1.0.0")
+
+origins = [origin.strip() for origin in settings.allowed_origins.split(",") if origin.strip()]
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=origins,
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+app.include_router(health.router, prefix="/api", tags=["health"])
+app.include_router(jobs.router, prefix="/api", tags=["jobs"])
+app.include_router(applications.router, prefix="/api", tags=["applications"])
+app.include_router(inquiries.router, prefix="/api", tags=["inquiries"])
+app.include_router(admin.router, prefix="/api/admin", tags=["admin"])
+```
+
+4.5 CORS and security
+Allowed origins should include:
+- http://localhost:3000
+- http://127.0.0.1:3000
+- https://ugetjob.com
+- https://www.ugetjob.com
+- https://*.vercel.app
+- https://*.netlify.app
+
+For a static HTML frontend or JS frontend:
+- enable CORS for `GET`, `POST`, `PATCH`, `DELETE`
+- allow content-type `application/json` and `multipart/form-data`
+
+4.6 File upload handling with Supabase Storage
+Use `supabase` Python SDK or `storage3`.
+
+`app/services/supabase_storage.py`
+```python
+from supabase import create_client, Client
+from app.core.config import settings
+
+supabase: Client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+
+async def upload_resume(file_bytes: bytes, filename: str, application_id: str):
+    path = f"candidate-resumes/{application_id}/{filename}"
+    response = supabase.storage.from_("candidate-resumes").upload(
+        path,
+        file_bytes,
+        {"content-type": "application/pdf"}
+    )
+    return response
+```
+
+4.7 Resume upload route example
+```python
+from fastapi import APIRouter, UploadFile, File, Form, HTTPException
+from app.services.supabase_storage import upload_resume
+
+router = APIRouter()
+
+@router.post("/applications/{application_id}/documents")
+async def upload_document(
+    application_id: str,
+    document_type: str = Form(...),
+    file: UploadFile = File(...)
+):
+    contents = await file.read()
+    filename = file.filename
+    result = await upload_resume(contents, filename, application_id)
+    return {"success": True, "data": result}
+```
+
+4.8 API route examples
+Jobs route:
+```python
+@router.get("/jobs")
+async def list_jobs(
+    keyword: str = None,
+    category: str = None,
+    country: str = None,
+    city: str = None,
+    visa_status: str = None,
+    employment_type: str = None,
+    page: int = 1,
+    limit: int = 20,
+    db: AsyncSession = Depends(get_db)
+):
+    # build filter query
+    return {"success": True, "data": [], "meta": {"page": page, "limit": limit, "total": 0}}
+```
+
+Applications route:
+```python
+@router.post("/applications/quick-apply")
+async def quick_apply(payload: CandidateApplicationCreate):
+    # create candidate
+    # create application
+    # optional upload resume
+    return {"success": True, "data": {"application_id": "uuid"}}
+```
+
+Employer inquiry route:
+```python
+@router.post("/inquiries/employer")
+async def create_employer_inquiry(payload: EmployerInquiryCreate):
+    return {"success": True, "data": {"id": "uuid"}}
+```
+
+Admin ATS route:
+```python
+@router.patch("/admin/ats/applications/{application_id}")
+async def update_application_status(application_id: str, payload: ApplicationUpdate):
+    return {"success": True, "data": {"id": application_id}}
+```
+
+4.9 Pydantic schemas
+Use request/response models for strict validation.
+
+Example:
+```python
+from pydantic import BaseModel, EmailStr, Field
+from typing import Optional
+
+class CandidateApplicationCreate(BaseModel):
+    job_id: Optional[str] = None
+    full_name: str
+    email: Optional[EmailStr] = None
+    phone: str
+    whatsapp: Optional[str] = None
+    nationality: Optional[str] = None
+    current_country: Optional[str] = None
+    current_city: Optional[str] = None
+    passport_status: Optional[str] = None
+    years_experience: Optional[int] = None
+    current_role: Optional[str] = None
+    preferred_country: Optional[str] = None
+    preferred_job_category: Optional[str] = None
+    visa_status: Optional[str] = None
+    willing_to_relocate: bool = False
+    consent_to_contact: bool = False
+```
+
+5. Recommended Response Format
+
+Use a single standard response envelope everywhere:
+```json
+{
+  "success": true,
+  "data": {},
+  "meta": {
+    "page": 1,
+    "limit": 20,
+    "total": 120
+  }
+}
+```
+
+Error format:
+```json
+{
+  "success": false,
+  "error": {
+    "code": "validation_error",
+    "message": "Phone is required"
+  }
+}
+```
+
+6. Summary of Required Backend Capabilities
+
+The backend must support:
+
+- candidate search and filter for jobs
+- public job detail pages
+- candidate quick-apply workflow with resume upload
+- ATS pipeline for candidate review
+- employer inquiry capture
+- recruitment service request capture
+- admin status updates and internal notes
+- file storage in Supabase buckets
+- Supabase PostgreSQL data persistence
+
+7. Final spec copy prompt for AI Studio
+
+You can also paste this directly into Google AI Studio:
+
+“Create a complete production-ready FastAPI + SQLAlchemy + Supabase backend for a recruitment/consultancy platform called UGETJOB. The frontend is a static HTML/Tailwind job board and ATS dashboard with landing page, live jobs portal, and admin ATS portal. Build the backend to support:
+- public job listing search with filters for keyword, category, country, city, visa status, employment type, experience range, urgent and featured jobs
+- job detail retrieval
+- candidate quick-apply forms including fields like full_name, email, phone, whatsapp, nationality, passport_status, passport_number, experience years, current_role, preferred_country, visa_status, willing_to_relocate, resumes upload, cover_letter, consent_to_contact
+- employer manpower inquiry submissions
+- service request forms for recruitment, documentation, visa, mobilization
+- admin ATS application management with statuses: new, contacted, shortlisted, interview_scheduled, interviewed, document_pending, medical_pending, visa_pending, visa_approved, rejected, hired, archived
+- Supabase PostgreSQL schema with tables: job_categories, jobs, candidates, applications, employers, employer_inquiries, service_requests, application_documents, ats_notes, optional admin_users
+- file uploads to Supabase Storage buckets: candidate-resumes, company-documents, job-attachments
+- FastAPI routes with GET/POST/PATCH/DELETE
+- async SQLAlchemy session management
+- CORS configuration
+- Pydantic schemas
+- route structure and response format
+
+Generate:
+1) SQL schema migrations
+2) SQLAlchemy model definitions
+3) Pydantic request/response schemas
+4) FastAPI route files
+5) Supabase storage service helpers
+6) environment config and requirements
+7) README with sample API usage
+Make it production-ready and cleanly organized.”
+
+---
+
+If you want, I can turn this into:
+- a production-ready SQL schema file
+- a full FastAPI project scaffold
+- complete SQLAlchemy models and routes
+- or a single exact backend codebase matching this spec.

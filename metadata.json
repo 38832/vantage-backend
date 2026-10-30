@@ -1,0 +1,6 @@
+{
+  "name": "UGETJOB - FastAPI & Supabase Backend API",
+  "description": "Production-ready FastAPI + SQLAlchemy + Supabase backend API for UGETJOB overseas manpower recruitment, candidate ATS pipeline, and file storage.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
