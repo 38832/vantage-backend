@@ -1,6 +1,9 @@
 -- =====================================================================
--- UGETJOB - Global Workforce Solutions (Nouman's Manpower Consultancy)
--- PostgreSQL + Supabase Database Schema Migration
+-- UGETJOB - Updated PostgreSQL + Supabase Schema
+-- Supports BOTH:
+-- 1) Legacy Google Drive / external CV links
+-- 2) Uploaded resume files (PDF, DOC, DOCX, etc.)
+-- 3) Admin-driven job posting and ATS data model
 -- =====================================================================
 
 -- Enable UUID extension
@@ -14,7 +17,7 @@ CREATE EXTENSION IF NOT EXISTS "pgcrypto";
 DO $$ BEGIN
     CREATE TYPE job_status AS ENUM ('draft', 'published', 'paused', 'closed', 'filled');
 EXCEPTION
-    WHEN duplicate_object THEN null;
+    WHEN duplicate_object THEN NULL;
 END $$;
 
 DO $$ BEGIN
@@ -33,14 +36,19 @@ DO $$ BEGIN
         'archived'
     );
 EXCEPTION
-    WHEN duplicate_object THEN null;
+    WHEN duplicate_object THEN NULL;
+END $$;
+
+DO $$ BEGIN
+    CREATE TYPE resume_source AS ENUM ('drive_link', 'uploaded_file', 'manual_text');
+EXCEPTION
+    WHEN duplicate_object THEN NULL;
 END $$;
 
 -- ---------------------------------------------------------------------
 -- 2. TABLES
 -- ---------------------------------------------------------------------
 
--- Table: job_categories
 CREATE TABLE IF NOT EXISTS job_categories (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     slug TEXT NOT NULL UNIQUE,
@@ -52,7 +60,6 @@ CREATE TABLE IF NOT EXISTS job_categories (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Table: jobs
 CREATE TABLE IF NOT EXISTS jobs (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     category_id UUID NOT NULL REFERENCES job_categories(id) ON DELETE RESTRICT,
@@ -63,10 +70,10 @@ CREATE TABLE IF NOT EXISTS jobs (
     employer_phone TEXT,
     location_country TEXT NOT NULL,
     location_city TEXT,
-    work_location_type TEXT NOT NULL DEFAULT 'overseas', -- overseas, domestic, hybrid, remote
+    work_location_type TEXT NOT NULL DEFAULT 'overseas',
     visa_required BOOLEAN NOT NULL DEFAULT false,
     visa_type TEXT,
-    employment_type TEXT NOT NULL DEFAULT 'full_time', -- full_time, contract, temporary, project_based
+    employment_type TEXT NOT NULL DEFAULT 'full_time',
     experience_min INTEGER NOT NULL DEFAULT 0,
     experience_max INTEGER,
     age_min INTEGER,
@@ -91,7 +98,6 @@ CREATE TABLE IF NOT EXISTS jobs (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Table: candidates
 CREATE TABLE IF NOT EXISTS candidates (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     full_name TEXT NOT NULL,
@@ -101,20 +107,34 @@ CREATE TABLE IF NOT EXISTS candidates (
     nationality TEXT,
     current_country TEXT,
     current_city TEXT,
-    passport_status TEXT DEFAULT 'ready', -- not_applied, ready, in_process, expired, not_required
+    passport_status TEXT DEFAULT 'ready',
     passport_number TEXT,
     passport_expiry DATE,
     years_experience INTEGER DEFAULT 0,
-    current_role TEXT,
+    current_job_title TEXT,
     current_salary NUMERIC(12,2),
     preferred_country TEXT,
     preferred_city TEXT,
     preferred_job_category TEXT,
-    visa_status TEXT DEFAULT 'required', -- not_required, required, ready, in_process
+    visa_status TEXT DEFAULT 'required',
     notice_period TEXT,
     willing_to_relocate BOOLEAN DEFAULT true,
     has_resume BOOLEAN NOT NULL DEFAULT false,
+
+    -- legacy external resume link
     resume_url TEXT,
+
+    -- source of resume
+    resume_source resume_source NOT NULL DEFAULT 'drive_link',
+
+    -- uploaded file metadata
+    resume_file_name TEXT,
+    resume_storage_bucket TEXT,
+    resume_storage_path TEXT,
+    resume_mime_type TEXT,
+    resume_file_size_bytes BIGINT,
+    resume_uploaded_at TIMESTAMPTZ,
+
     cover_letter TEXT,
     source TEXT DEFAULT 'website',
     consent_to_contact BOOLEAN NOT NULL DEFAULT false,
@@ -122,7 +142,22 @@ CREATE TABLE IF NOT EXISTS candidates (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Table: applications
+CREATE TABLE IF NOT EXISTS candidate_resumes (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    candidate_id UUID NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
+    original_filename TEXT NOT NULL,
+    storage_bucket TEXT NOT NULL,
+    storage_path TEXT NOT NULL,
+    mime_type TEXT NOT NULL,
+    file_size_bytes BIGINT NOT NULL DEFAULT 0,
+    source resume_source NOT NULL DEFAULT 'uploaded_file',
+    drive_link TEXT,
+    is_primary BOOLEAN NOT NULL DEFAULT true,
+    uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
 CREATE TABLE IF NOT EXISTS applications (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     candidate_id UUID NOT NULL REFERENCES candidates(id) ON DELETE CASCADE,
@@ -141,7 +176,6 @@ CREATE TABLE IF NOT EXISTS applications (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Table: employers
 CREATE TABLE IF NOT EXISTS employers (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     company_name TEXT NOT NULL,
@@ -157,7 +191,6 @@ CREATE TABLE IF NOT EXISTS employers (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Table: employer_inquiries
 CREATE TABLE IF NOT EXISTS employer_inquiries (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     employer_id UUID REFERENCES employers(id) ON DELETE SET NULL,
@@ -165,7 +198,7 @@ CREATE TABLE IF NOT EXISTS employer_inquiries (
     contact_name TEXT NOT NULL,
     email TEXT NOT NULL,
     phone TEXT NOT NULL,
-    requirement_type TEXT NOT NULL, -- manpower, project_hire, specialist, custom
+    requirement_type TEXT NOT NULL,
     industry TEXT,
     job_title TEXT,
     number_of_positions INTEGER,
@@ -173,7 +206,7 @@ CREATE TABLE IF NOT EXISTS employer_inquiries (
     city TEXT,
     work_location TEXT,
     budget_range TEXT,
-    urgency TEXT DEFAULT 'normal', -- urgent, normal, custom
+    urgency TEXT DEFAULT 'normal',
     timeline TEXT,
     notes TEXT,
     source TEXT DEFAULT 'website',
@@ -181,10 +214,9 @@ CREATE TABLE IF NOT EXISTS employer_inquiries (
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Table: service_requests
 CREATE TABLE IF NOT EXISTS service_requests (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    service_type TEXT NOT NULL, -- recruitment, documentation, visa, mobilization
+    service_type TEXT NOT NULL,
     company_name TEXT,
     contact_name TEXT NOT NULL,
     email TEXT NOT NULL,
@@ -195,12 +227,11 @@ CREATE TABLE IF NOT EXISTS service_requests (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Table: application_documents
 CREATE TABLE IF NOT EXISTS application_documents (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     application_id UUID REFERENCES applications(id) ON DELETE CASCADE,
     candidate_id UUID REFERENCES candidates(id) ON DELETE CASCADE,
-    document_type TEXT NOT NULL, -- resume, passport, certificate, photo, other
+    document_type TEXT NOT NULL,
     original_filename TEXT NOT NULL,
     storage_bucket TEXT NOT NULL,
     storage_path TEXT NOT NULL,
@@ -209,7 +240,6 @@ CREATE TABLE IF NOT EXISTS application_documents (
     uploaded_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Table: ats_notes
 CREATE TABLE IF NOT EXISTS ats_notes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     application_id UUID NOT NULL REFERENCES applications(id) ON DELETE CASCADE,
@@ -218,7 +248,6 @@ CREATE TABLE IF NOT EXISTS ats_notes (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Table: job_search_activity
 CREATE TABLE IF NOT EXISTS job_search_activity (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     search_term TEXT,
@@ -233,66 +262,155 @@ CREATE TABLE IF NOT EXISTS job_search_activity (
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
--- Table: admin_users
 CREATE TABLE IF NOT EXISTS admin_users (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     email TEXT NOT NULL UNIQUE,
     full_name TEXT NOT NULL,
     password_hash TEXT NOT NULL,
-    role TEXT NOT NULL DEFAULT 'admin', -- admin, recruiter, manager
+    role TEXT NOT NULL DEFAULT 'admin',
     is_active BOOLEAN NOT NULL DEFAULT true,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
 -- ---------------------------------------------------------------------
--- 3. INDEXES FOR PERFORMANCE
+-- 3. INDEXES
 -- ---------------------------------------------------------------------
 
 CREATE INDEX IF NOT EXISTS idx_jobs_status_country ON jobs(status, location_country);
 CREATE INDEX IF NOT EXISTS idx_jobs_category ON jobs(category_id);
 CREATE INDEX IF NOT EXISTS idx_jobs_urgent_featured ON jobs(urgent, featured);
+
 CREATE INDEX IF NOT EXISTS idx_applications_candidate ON applications(candidate_id);
 CREATE INDEX IF NOT EXISTS idx_applications_job ON applications(job_id);
 CREATE INDEX IF NOT EXISTS idx_applications_status ON applications(application_status);
+
 CREATE INDEX IF NOT EXISTS idx_candidates_phone ON candidates(phone);
 CREATE INDEX IF NOT EXISTS idx_candidates_email ON candidates(email);
+
 CREATE INDEX IF NOT EXISTS idx_documents_app ON application_documents(application_id);
+CREATE INDEX IF NOT EXISTS idx_candidate_resumes_candidate ON candidate_resumes(candidate_id);
+CREATE INDEX IF NOT EXISTS idx_candidate_resumes_primary ON candidate_resumes(candidate_id, is_primary);
 
 -- ---------------------------------------------------------------------
--- 4. SUPABASE STORAGE BUCKETS SETUP & POLICIES
+-- 4. STORAGE BUCKETS
 -- ---------------------------------------------------------------------
 
--- Create buckets in storage schema
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
-VALUES 
-    ('candidate-resumes', 'candidate-resumes', false, 10485760, ARRAY['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document']),
-    ('company-documents', 'company-documents', false, 10485760, ARRAY['application/pdf', 'application/msword', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document', 'image/jpeg', 'image/png']),
-    ('job-attachments', 'job-attachments', true, 10485760, ARRAY['application/pdf', 'image/jpeg', 'image/png'])
-ON CONFLICT (id) DO UPDATE SET 
+VALUES
+    (
+        'candidate-resumes',
+        'candidate-resumes',
+        false,
+        10485760,
+        ARRAY[
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'application/vnd.oasis.opendocument.text',
+            'application/rtf',
+            'image/jpeg',
+            'image/png'
+        ]
+    ),
+    (
+        'company-documents',
+        'company-documents',
+        false,
+        10485760,
+        ARRAY[
+            'application/pdf',
+            'application/msword',
+            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+            'image/jpeg',
+            'image/png'
+        ]
+    ),
+    (
+        'job-attachments',
+        'job-attachments',
+        true,
+        10485760,
+        ARRAY[
+            'application/pdf',
+            'image/jpeg',
+            'image/png'
+        ]
+    )
+ON CONFLICT (id) DO UPDATE SET
     file_size_limit = EXCLUDED.file_size_limit,
     allowed_mime_types = EXCLUDED.allowed_mime_types;
 
--- RLS on Storage objects
--- Allow anonymous or candidates to upload resumes
 CREATE POLICY "Allow public resume upload"
 ON storage.objects FOR INSERT
 TO public
 WITH CHECK (bucket_id = 'candidate-resumes');
 
--- Allow authenticated recruiters/admins to view/download candidate resumes
 CREATE POLICY "Allow recruiters to read candidate resumes"
 ON storage.objects FOR SELECT
 TO authenticated
 USING (bucket_id = 'candidate-resumes');
 
--- Public read for job attachments
 CREATE POLICY "Public read for job attachments"
 ON storage.objects FOR SELECT
 TO public
 USING (bucket_id = 'job-attachments');
 
 -- ---------------------------------------------------------------------
--- 5. INITIAL SEED DATA
+-- 5. UPDATE TRIGGERS
+-- ---------------------------------------------------------------------
+
+CREATE OR REPLACE FUNCTION update_updated_at_column()
+RETURNS TRIGGER AS $$
+BEGIN
+    NEW.updated_at = NOW();
+    RETURN NEW;
+END;
+$$ LANGUAGE plpgsql;
+
+DROP TRIGGER IF EXISTS trg_job_categories_updated_at ON job_categories;
+CREATE TRIGGER trg_job_categories_updated_at
+BEFORE UPDATE ON job_categories
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_jobs_updated_at ON jobs;
+CREATE TRIGGER trg_jobs_updated_at
+BEFORE UPDATE ON jobs
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_candidates_updated_at ON candidates;
+CREATE TRIGGER trg_candidates_updated_at
+BEFORE UPDATE ON candidates
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_applications_updated_at ON applications;
+CREATE TRIGGER trg_applications_updated_at
+BEFORE UPDATE ON applications
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_employers_updated_at ON employers;
+CREATE TRIGGER trg_employers_updated_at
+BEFORE UPDATE ON employers
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_employer_inquiries_updated_at ON employer_inquiries;
+CREATE TRIGGER trg_employer_inquiries_updated_at
+BEFORE UPDATE ON employer_inquiries
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+DROP TRIGGER IF EXISTS trg_candidate_resumes_updated_at ON candidate_resumes;
+CREATE TRIGGER trg_candidate_resumes_updated_at
+BEFORE UPDATE ON candidate_resumes
+FOR EACH ROW
+EXECUTE FUNCTION update_updated_at_column();
+
+-- ---------------------------------------------------------------------
+-- 6. SEED DATA
 -- ---------------------------------------------------------------------
 
 INSERT INTO job_categories (id, slug, name, description) VALUES
