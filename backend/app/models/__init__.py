@@ -1,6 +1,6 @@
 from app.db.base import Base
 from app.models.job import Job, JobCategory, JobStatus
-from app.models.candidate import Candidate
+from app.models.candidate import Candidate, CandidateResume, ResumeSource
 from app.models.application import Application, ApplicationStatus
 from app.models.employer import Employer
 from app.models.inquiry import EmployerInquiry
@@ -14,6 +14,8 @@ __all__ = [
     "JobCategory",
     "JobStatus",
     "Candidate",
+    "CandidateResume",
+    "ResumeSource",
     "Application",
     "ApplicationStatus",
     "Employer",

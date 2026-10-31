@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import Optional
-from sqlalchemy import String, BigInteger, DateTime, ForeignKey, LargeBinary
+from sqlalchemy import String, BigInteger, DateTime, ForeignKey
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.dialects.postgresql import UUID
 from app.db.base import Base
@@ -18,7 +18,6 @@ class ApplicationDocument(Base):
     storage_path: Mapped[str] = mapped_column(String(500), nullable=False)
     mime_type: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
     file_size_bytes: Mapped[Optional[int]] = mapped_column(BigInteger, nullable=True)
-    file_data: Mapped[Optional[bytes]] = mapped_column(LargeBinary, nullable=True) # Optional direct PostgreSQL BYTEA binary storage
     uploaded_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
 
     application: Mapped[Optional["Application"]] = relationship("Application", back_populates="documents")

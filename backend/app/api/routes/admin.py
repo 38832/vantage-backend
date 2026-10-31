@@ -79,7 +79,7 @@ async def list_ats_applications(
             or_(
                 func.lower(Candidate.full_name).like(search_term),
                 func.lower(Candidate.phone).like(search_term),
-                func.lower(Candidate.current_role).like(search_term),
+                func.lower(Candidate.current_job_title).like(search_term),
                 func.lower(Job.title).like(search_term)
             )
         )
@@ -118,7 +118,8 @@ async def list_ats_applications(
                 candidate_phone=app.candidate.phone if app.candidate else None,
                 candidate_email=app.candidate.email if app.candidate else None,
                 candidate_nationality=app.candidate.nationality if app.candidate else None,
-                candidate_role=app.candidate.current_role if app.candidate else None,
+                candidate_job_title=app.candidate.current_job_title if app.candidate else None,
+                candidate_role=app.candidate.current_job_title if app.candidate else None,
                 job_title=app.job.title if app.job else "General Deployment Application",
                 company_name=app.job.company_name if app.job else "Nouman's Consultancy Pool",
                 application_status=app.application_status,

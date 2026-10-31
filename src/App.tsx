@@ -125,7 +125,7 @@ const ENDPOINTS: Endpoint[] = [
     path: '/api/applications/quick-apply',
     category: 'Applications',
     summary: 'Candidate Quick Apply (JSON)',
-    description: 'Submit candidate credentials from your frontend quick apply form. Automatically creates or updates Candidate and Application records.',
+    description: 'Submit candidate credentials from your frontend quick apply form. Supports both Google Drive / cloud CV links (drive_link) and candidate profile creation.',
     requestBody: {
       job_id: '22222222-2222-2222-2222-222222222201',
       full_name: 'Mohd Basheer',
@@ -138,7 +138,10 @@ const ENDPOINTS: Endpoint[] = [
       passport_status: 'ready',
       passport_number: 'P1234567',
       years_experience: 7,
+      current_job_title: 'HVAC Chiller Specialist',
       current_role: 'HVAC Chiller Specialist',
+      drive_link: 'https://drive.google.com/file/d/1A2B3C4D5E/view',
+      resume_source: 'drive_link',
       preferred_country: 'Saudi Arabia',
       visa_status: 'required',
       willing_to_relocate: true,
@@ -151,27 +154,79 @@ const ENDPOINTS: Endpoint[] = [
         application_id: '8a91c2e4-f3b1-419b-a812-984e1b302a91',
         candidate_id: '1f44c9d2-7c8a-44e2-9b23-64a8d052b311',
         status: 'new',
-        message: 'Application submitted successfully.'
+        resume_url: 'https://drive.google.com/file/d/1A2B3C4D5E/view',
+        resume_source: 'drive_link',
+        message: 'Application submitted successfully. Our recruitment team will review your profile.'
       }
+    }
+  },
+  {
+    method: 'POST',
+    path: '/api/applications/quick-apply-multipart',
+    category: 'Applications',
+    summary: 'Candidate Quick Apply with Resume File Upload (Multipart)',
+    description: 'Direct multipart form upload accepting PDF/DOCX resume file (or drive_link) along with candidate data. Automatically persists resume in candidate_resumes table.',
+    requestBody: {
+      full_name: 'Mohd Basheer',
+      phone: '+971500000000',
+      email: 'candidate@example.com',
+      current_job_title: 'HVAC Chiller Specialist',
+      preferred_country: 'Saudi Arabia',
+      resume: '(binary PDF / DOCX file upload)'
+    },
+    responseBody: {
+      success: true,
+      data: {
+        application_id: '8a91c2e4-f3b1-419b-a812-984e1b302a91',
+        candidate_id: '1f44c9d2-7c8a-44e2-9b23-64a8d052b311',
+        resume_url: 'https://xxxx.supabase.co/storage/v1/object/candidate-resumes/...',
+        resume_source: 'uploaded_file',
+        message: 'Candidate applied successfully with resume registered.'
+      }
+    }
+  },
+  {
+    method: 'GET',
+    path: '/api/applications/candidates/{candidate_id}/resumes',
+    category: 'Applications',
+    summary: 'Get Candidate Resumes (candidate_resumes Table)',
+    description: 'Retrieve all resumes recorded for a candidate, including Drive links and uploaded files, ordered by primary CV status.',
+    responseBody: {
+      success: true,
+      data: [
+        {
+          id: 'uuid',
+          candidate_id: '1f44c9d2-7c8a-44e2-9b23-64a8d052b311',
+          original_filename: 'Basheer_HVAC_CV.pdf',
+          storage_bucket: 'candidate-resumes',
+          storage_path: 'app_id/resume.pdf',
+          mime_type: 'application/pdf',
+          file_size_bytes: 245000,
+          source: 'uploaded_file',
+          drive_link: null,
+          is_primary: true,
+          uploaded_at: '2026-10-31T05:00:00Z'
+        }
+      ]
     }
   },
   {
     method: 'POST',
     path: '/api/applications/{application_id}/documents',
     category: 'Applications',
-    summary: 'Upload Resume / Credentials',
-    description: 'Multipart form upload for candidate resumes, passports, or certificates. Stored directly in Supabase Storage with signed URL generation.',
+    summary: 'Upload Supporting Application Document',
+    description: 'Multipart form upload for candidate passport copy, medical clearance, or trade testing certificates to candidate-resumes or company-documents.',
     requestBody: {
-      document_type: 'resume',
-      file: '(binary PDF / DOCX file)'
+      document_type: 'passport',
+      file: '(binary PDF / JPEG file)'
     },
     responseBody: {
       success: true,
       data: {
         id: 'uuid',
         application_id: 'uuid',
-        document_type: 'resume',
-        storage_path: 'candidate-resumes/uuid/resume.pdf',
+        document_type: 'passport',
+        storage_path: 'candidate-resumes/uuid/passport.pdf',
         url: 'https://xxxx.supabase.co/storage/v1/object/candidate-resumes/...'
       }
     }

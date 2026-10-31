@@ -183,11 +183,53 @@ async def test_quick_apply_unknown_job(client):
 async def test_quick_apply_multipart_with_resume(client):
     response = await client.post("/api/applications/quick-apply-multipart", data={
         "full_name": "Multipart Candidate", "phone": "+971500000222", "email": "multi@example.com",
-        "passport_status": "ready", "visa_status": "required", "consent_to_contact": "true",
+        "current_job_title": "Heavy Crane Operator", "passport_status": "ready",
+        "visa_status": "required", "consent_to_contact": "true",
     }, files={"resume": ("resume.pdf", b"%PDF-1.4 test resume", "application/pdf")})
     assert response.status_code == 200, response.text
-    assert uuid.UUID(response.json()["data"]["application_id"])
-    assert response.json()["data"]["resume_url"]
+    body = response.json()["data"]
+    assert uuid.UUID(body["application_id"])
+    assert body["resume_url"]
+    assert body["resume_source"] == "uploaded_file"
+
+    cand_id = body["candidate_id"]
+    resumes_resp = await client.get(f"/api/applications/candidates/{cand_id}/resumes")
+    assert resumes_resp.status_code == 200
+    resumes_data = resumes_resp.json()["data"]
+    assert len(resumes_data) >= 1
+    assert resumes_data[0]["original_filename"] == "resume.pdf"
+    assert resumes_data[0]["source"] == "uploaded_file"
+    assert resumes_data[0]["is_primary"] is True
+
+
+@pytest.mark.asyncio
+async def test_quick_apply_drive_link_creates_candidate_resume(client, db_session):
+    category = await seed_category(db_session, slug="hvac-services", name="HVAC Services")
+    job = await seed_job(db_session, category, title="Chiller Tech")
+    drive_url = "https://drive.google.com/file/d/1A2B3C4D5E6F/view?usp=sharing"
+    payload = {
+        "job_id": str(job.id),
+        "full_name": "Tariq Mansoor",
+        "phone": "+971529998877",
+        "email": "tariq@example.com",
+        "current_job_title": "Lead Chiller Tech",
+        "drive_link": drive_url,
+        "consent_to_contact": True,
+    }
+    response = await client.post("/api/applications/quick-apply", json=payload)
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]
+    assert data["resume_source"] == "drive_link"
+    assert data["resume_url"] == drive_url
+
+    cand_id = data["candidate_id"]
+    resumes_resp = await client.get(f"/api/applications/candidates/{cand_id}/resumes")
+    assert resumes_resp.status_code == 200
+    resumes_data = resumes_resp.json()["data"]
+    assert len(resumes_data) == 1
+    assert resumes_data[0]["source"] == "drive_link"
+    assert resumes_data[0]["drive_link"] == drive_url
+    assert resumes_data[0]["is_primary"] is True
 
 
 @pytest.mark.asyncio

@@ -6,7 +6,8 @@ from app.schemas.application import (
     ApplicationOut,
     ATSNoteCreate,
     ATSNoteOut,
-    ATSDashboardStats
+    ATSDashboardStats,
+    CandidateResumeOut
 )
 from app.schemas.inquiry import EmployerInquiryCreate, EmployerInquiryOut, ServiceRequestCreate, ServiceRequestOut
 
@@ -20,6 +21,7 @@ __all__ = [
     "JobCreate",
     "JobUpdate",
     "CandidateApplicationCreate",
+    "CandidateResumeOut",
     "ApplicationUpdate",
     "ApplicationOut",
     "ATSNoteCreate",

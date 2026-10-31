@@ -1,8 +1,25 @@
 import uuid
 from datetime import datetime, date
 from typing import Optional, List
-from pydantic import BaseModel, EmailStr, ConfigDict
+from pydantic import BaseModel, EmailStr, ConfigDict, model_validator
 from app.models.application import ApplicationStatus
+from app.models.candidate import ResumeSource
+
+class CandidateResumeOut(BaseModel):
+    id: uuid.UUID
+    candidate_id: uuid.UUID
+    original_filename: str
+    storage_bucket: str
+    storage_path: str
+    mime_type: str
+    file_size_bytes: int
+    source: ResumeSource
+    drive_link: Optional[str] = None
+    is_primary: bool
+    uploaded_at: datetime
+    created_at: datetime
+
+    model_config = ConfigDict(from_attributes=True)
 
 class CandidateBase(BaseModel):
     full_name: str
@@ -16,7 +33,8 @@ class CandidateBase(BaseModel):
     passport_number: Optional[str] = None
     passport_expiry: Optional[date] = None
     years_experience: Optional[int] = 0
-    current_role: Optional[str] = None
+    current_job_title: Optional[str] = None
+    current_role: Optional[str] = None  # Accepted as alias for current_job_title
     current_salary: Optional[float] = None
     preferred_country: Optional[str] = None
     preferred_city: Optional[str] = None
@@ -27,14 +45,29 @@ class CandidateBase(BaseModel):
     cover_letter: Optional[str] = None
     consent_to_contact: bool = True
 
+    @model_validator(mode="before")
+    @classmethod
+    def sync_job_title_and_role(cls, data):
+        if isinstance(data, dict):
+            # If current_role is given but current_job_title is not, sync it
+            if data.get("current_role") and not data.get("current_job_title"):
+                data["current_job_title"] = data["current_role"]
+            elif data.get("current_job_title") and not data.get("current_role"):
+                data["current_role"] = data["current_job_title"]
+        return data
+
 class CandidateApplicationCreate(CandidateBase):
     job_id: Optional[uuid.UUID] = None
     resume_url: Optional[str] = None
+    drive_link: Optional[str] = None
+    resume_source: Optional[ResumeSource] = ResumeSource.drive_link
 
 class CandidateOut(CandidateBase):
     id: uuid.UUID
     has_resume: bool
     resume_url: Optional[str] = None
+    resume_source: ResumeSource = ResumeSource.drive_link
+    resume_file_name: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -71,6 +104,7 @@ class ApplicationOut(BaseModel):
     candidate_phone: Optional[str] = None
     candidate_email: Optional[str] = None
     candidate_nationality: Optional[str] = None
+    candidate_job_title: Optional[str] = None
     candidate_role: Optional[str] = None
     job_title: Optional[str] = None
     company_name: Optional[str] = None

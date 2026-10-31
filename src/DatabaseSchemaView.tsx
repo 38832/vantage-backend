@@ -124,7 +124,7 @@ const ALL_TABLES: TableDef[] = [
       { name: 'passport_number', type: 'TEXT', nullable: true },
       { name: 'passport_expiry', type: 'DATE', nullable: true },
       { name: 'years_experience', type: 'INTEGER', nullable: true, defaultVal: '0' },
-      { name: 'current_role', type: 'TEXT', nullable: true },
+      { name: 'current_job_title', type: 'TEXT', nullable: true, description: 'Candidate target / current designation (backward-compatible with current_role)' },
       { name: 'current_salary', type: 'NUMERIC(12,2)', nullable: true },
       { name: 'preferred_country', type: 'TEXT', nullable: true },
       { name: 'preferred_city', type: 'TEXT', nullable: true },
@@ -133,10 +133,41 @@ const ALL_TABLES: TableDef[] = [
       { name: 'notice_period', type: 'TEXT', nullable: true },
       { name: 'willing_to_relocate', type: 'BOOLEAN', nullable: true, defaultVal: 'true' },
       { name: 'has_resume', type: 'BOOLEAN', nullable: false, defaultVal: 'false' },
-      { name: 'resume_url', type: 'TEXT', nullable: true, description: 'Direct Supabase Storage signed/public URL' },
+      { name: 'resume_url', type: 'TEXT', nullable: true, description: 'Direct Supabase Storage signed URL or external Drive link' },
+      { name: 'resume_source', type: 'resume_source (ENUM)', nullable: false, defaultVal: "'drive_link'", description: 'drive_link, uploaded_file, manual_text' },
+      { name: 'resume_file_name', type: 'TEXT', nullable: true, description: 'Original uploaded filename' },
+      { name: 'resume_storage_bucket', type: 'TEXT', nullable: true, description: 'Storage bucket (candidate-resumes or external)' },
+      { name: 'resume_storage_path', type: 'TEXT', nullable: true, description: 'Object storage path' },
+      { name: 'resume_mime_type', type: 'TEXT', nullable: true, description: 'application/pdf, docx, etc.' },
+      { name: 'resume_file_size_bytes', type: 'BIGINT', nullable: true, description: 'File size in bytes' },
+      { name: 'resume_uploaded_at', type: 'TIMESTAMPTZ', nullable: true },
       { name: 'cover_letter', type: 'TEXT', nullable: true },
       { name: 'source', type: 'TEXT', nullable: true, defaultVal: "'website'" },
       { name: 'consent_to_contact', type: 'BOOLEAN', nullable: false, defaultVal: 'false' },
+      { name: 'created_at', type: 'TIMESTAMPTZ', nullable: false, defaultVal: 'NOW()' },
+      { name: 'updated_at', type: 'TIMESTAMPTZ', nullable: false, defaultVal: 'NOW()' },
+    ]
+  },
+  {
+    name: 'candidate_resumes',
+    category: 'Candidate & ATS',
+    description: 'Multi-resume repository supporting both external Google Drive links and uploaded PDF/Word/TXT files with primary CV selection',
+    pk: 'id',
+    foreignKeys: [
+      { column: 'candidate_id', references: 'candidates.id', onDelete: 'CASCADE' }
+    ],
+    columns: [
+      { name: 'id', type: 'UUID', nullable: false, isPk: true, defaultVal: 'gen_random_uuid()' },
+      { name: 'candidate_id', type: 'UUID', nullable: false, isFk: true, fkTarget: 'candidates(id)', isIndexed: true },
+      { name: 'original_filename', type: 'TEXT', nullable: false, description: 'Original uploaded file name or Drive CV title' },
+      { name: 'storage_bucket', type: 'TEXT', nullable: false, description: 'candidate-resumes or external' },
+      { name: 'storage_path', type: 'TEXT', nullable: false, description: 'Supabase object key or link reference' },
+      { name: 'mime_type', type: 'TEXT', nullable: false, description: 'application/pdf, text/uri-list, docx, etc.' },
+      { name: 'file_size_bytes', type: 'BIGINT', nullable: false, defaultVal: '0' },
+      { name: 'source', type: 'resume_source (ENUM)', nullable: false, defaultVal: "'uploaded_file'" },
+      { name: 'drive_link', type: 'TEXT', nullable: true, description: 'Direct external link (Google Drive, OneDrive)' },
+      { name: 'is_primary', type: 'BOOLEAN', nullable: false, defaultVal: 'true', isIndexed: true, description: 'Designated primary CV for quick screening' },
+      { name: 'uploaded_at', type: 'TIMESTAMPTZ', nullable: false, defaultVal: 'NOW()' },
       { name: 'created_at', type: 'TIMESTAMPTZ', nullable: false, defaultVal: 'NOW()' },
       { name: 'updated_at', type: 'TIMESTAMPTZ', nullable: false, defaultVal: 'NOW()' },
     ]
@@ -242,7 +273,7 @@ const ALL_TABLES: TableDef[] = [
   {
     name: 'application_documents',
     category: 'Candidate & ATS',
-    description: 'Supporting documents uploaded for applications (resumes in PDF, Word, TXT, RTF, passport copies, trade certificates, photos)',
+    description: 'Supporting documents uploaded for applications (resumes, passport copies, trade certificates, photos)',
     pk: 'id',
     foreignKeys: [
       { column: 'application_id', references: 'applications.id', onDelete: 'CASCADE' },
@@ -256,9 +287,8 @@ const ALL_TABLES: TableDef[] = [
       { name: 'original_filename', type: 'TEXT', nullable: false },
       { name: 'storage_bucket', type: 'TEXT', nullable: false, description: 'candidate-resumes, company-documents, job-attachments' },
       { name: 'storage_path', type: 'TEXT', nullable: false },
-      { name: 'mime_type', type: 'TEXT', nullable: true, description: 'PDF, DOC, DOCX, TXT, RTF, JPEG, PNG' },
+      { name: 'mime_type', type: 'TEXT', nullable: true, description: 'PDF, DOC, DOCX, ODT, RTF, JPEG, PNG' },
       { name: 'file_size_bytes', type: 'BIGINT', nullable: true },
-      { name: 'file_data', type: 'BYTEA', nullable: true, description: 'Optional direct PostgreSQL binary storage for self-contained backups' },
       { name: 'uploaded_at', type: 'TIMESTAMPTZ', nullable: false, defaultVal: 'NOW()' },
     ]
   },
@@ -326,23 +356,23 @@ const STORAGE_BUCKETS = [
       'application/pdf (.pdf)',
       'application/msword (.doc)',
       'application/vnd.openxmlformats-officedocument.wordprocessingml.document (.docx)',
-      'text/plain (.txt)',
+      'application/vnd.oasis.opendocument.text (.odt)',
       'application/rtf (.rtf)',
-      'image/jpeg, image/png, image/webp (scanned CVs & passport photos)'
+      'image/jpeg, image/png (.jpg, .jpeg, .png)'
     ],
-    purpose: 'Candidate quick-apply resumes in PDF, Word, TXT, or scan images. Public can upload (INSERT), authenticated recruiters access via 1-year signed URLs.',
-    rlsPolicy: 'Allow public resume upload (INSERT) & Allow recruiters to read resumes (SELECT)'
+    purpose: 'Candidate quick-apply resumes in PDF, Word, ODT, RTF, or scan images. Public can upload (INSERT), authenticated recruiters access via signed download URLs.',
+    rlsPolicy: 'Allow public resume upload (INSERT) & Allow recruiters to read candidate resumes (SELECT)'
   },
   {
     id: 'company-documents',
-    name: 'company-documents (company-document)',
+    name: 'company-documents',
     access: 'Private (Signed URLs)',
     sizeLimit: '10 MB',
     allowedMimeTypes: [
-      'application/pdf',
-      'application/msword (.doc/.docx)',
-      'image/jpeg',
-      'image/png'
+      'application/pdf (.pdf)',
+      'application/msword (.doc)',
+      'application/vnd.openxmlformats-officedocument.wordprocessingml.document (.docx)',
+      'image/jpeg, image/png'
     ],
     purpose: 'Employer demand letters, Power of Attorney, agency agreements, and commercial registration papers.',
     rlsPolicy: 'Restricted to authenticated administrative & corporate recruiter roles'
@@ -353,9 +383,8 @@ const STORAGE_BUCKETS = [
     access: 'Public (Direct CDN)',
     sizeLimit: '10 MB',
     allowedMimeTypes: [
-      'application/pdf',
-      'image/jpeg',
-      'image/png'
+      'application/pdf (.pdf)',
+      'image/jpeg, image/png'
     ],
     purpose: 'Publicly downloadable job circular posters, project site blueprints, trade test standards, and brochures.',
     rlsPolicy: 'Public read (SELECT) for all visitors; authenticated recruiters can upload/delete'
@@ -385,6 +414,11 @@ const ENUMS_INFO = [
       'archived'
     ],
     description: 'Recruitment pipeline workflow status for candidates'
+  },
+  {
+    name: 'resume_source',
+    values: ['drive_link', 'uploaded_file', 'manual_text'],
+    description: 'Format source of candidate CV: external Google Drive link, direct Supabase Storage uploaded file, or manual ATS text input'
   }
 ];
 
@@ -398,6 +432,8 @@ const INDEXES_INFO = [
   { name: 'idx_candidates_phone', target: 'candidates(phone)', purpose: 'Fast deduplication on candidate quick-apply' },
   { name: 'idx_candidates_email', target: 'candidates(email)', purpose: 'Candidate authentication and communication search' },
   { name: 'idx_documents_app', target: 'application_documents(application_id)', purpose: 'Load supporting docs per application' },
+  { name: 'idx_candidate_resumes_candidate', target: 'candidate_resumes(candidate_id)', purpose: 'Fast lookup of candidate resumes' },
+  { name: 'idx_candidate_resumes_primary', target: 'candidate_resumes(candidate_id, is_primary)', purpose: 'Quickly resolve candidate primary active CV' },
 ];
 
 interface DatabaseSchemaViewProps {
@@ -410,6 +446,8 @@ export const DatabaseSchemaView: React.FC<DatabaseSchemaViewProps> = ({ onCopy, 
   const [tableSearch, setTableSearch] = useState('');
   const [expandedTables, setExpandedTables] = useState<Record<string, boolean>>({
     'jobs': true,
+    'candidates': true,
+    'candidate_resumes': true,
     'applications': true
   });
 
@@ -473,9 +511,9 @@ export const DatabaseSchemaView: React.FC<DatabaseSchemaViewProps> = ({ onCopy, 
         {/* Metric Badges */}
         <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 mt-6">
           <div className="p-3.5 rounded-xl bg-slate-850 border border-slate-800 text-center">
-            <span className="text-2xl font-black text-amber-400 font-mono">11</span>
+            <span className="text-2xl font-black text-amber-400 font-mono">12</span>
             <span className="text-[11px] font-bold text-slate-300 block mt-0.5">Database Tables</span>
-            <span className="text-[10px] text-slate-500 block">UUID Primary Keys</span>
+            <span className="text-[10px] text-slate-500 block">All 12 Tables Active</span>
           </div>
           <div className="p-3.5 rounded-xl bg-slate-850 border border-slate-800 text-center">
             <span className="text-2xl font-black text-cyan-400 font-mono">3</span>
@@ -483,33 +521,33 @@ export const DatabaseSchemaView: React.FC<DatabaseSchemaViewProps> = ({ onCopy, 
             <span className="text-[10px] text-slate-500 block">Resumes, Docs, Posters</span>
           </div>
           <div className="p-3.5 rounded-xl bg-slate-850 border border-slate-800 text-center">
-            <span className="text-2xl font-black text-purple-400 font-mono">2</span>
+            <span className="text-2xl font-black text-purple-400 font-mono">3</span>
             <span className="text-[11px] font-bold text-slate-300 block mt-0.5">Custom Enums</span>
-            <span className="text-[10px] text-slate-500 block">Job & Application Status</span>
+            <span className="text-[10px] text-slate-500 block">Job, App, & Resume Source</span>
           </div>
           <div className="p-3.5 rounded-xl bg-slate-850 border border-slate-800 text-center">
-            <span className="text-2xl font-black text-emerald-400 font-mono">9</span>
+            <span className="text-2xl font-black text-emerald-400 font-mono">11</span>
             <span className="text-[11px] font-bold text-slate-300 block mt-0.5">DB Indexes</span>
             <span className="text-[10px] text-slate-500 block">Optimized Queries</span>
           </div>
           <div className="p-3.5 rounded-xl bg-slate-850 border border-slate-800 text-center col-span-2 sm:col-span-1">
-            <span className="text-2xl font-black text-blue-400 font-mono">RLS</span>
-            <span className="text-[11px] font-bold text-slate-300 block mt-0.5">Security Policies</span>
-            <span className="text-[10px] text-slate-500 block">Granular Access</span>
+            <span className="text-2xl font-black text-blue-400 font-mono">7</span>
+            <span className="text-[11px] font-bold text-slate-300 block mt-0.5">Auto Triggers</span>
+            <span className="text-[10px] text-slate-500 block">Auto updated_at Timestamps</span>
           </div>
         </div>
       </div>
 
-      {/* Section 1: All 11 Relational Tables */}
+      {/* Section 1: All 12 Relational Tables */}
       <div className="space-y-4">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div>
             <h3 className="text-lg font-bold text-white flex items-center space-x-2">
               <Layers className="w-5 h-5 text-amber-400" />
-              <span>All 11 PostgreSQL Tables ({filteredTables.length} shown)</span>
+              <span>All 12 PostgreSQL Tables ({filteredTables.length} shown)</span>
             </h3>
             <p className="text-xs text-slate-400 mt-0.5">
-              Normalized schema supporting public jobs, candidate profiles, recruitment ATS pipeline, and employer inquiries.
+              Normalized schema supporting public jobs, candidates, multi-version resumes (PDF/DOCX/Drive), ATS pipeline, and employer inquiries.
             </p>
           </div>
 
@@ -540,7 +578,7 @@ export const DatabaseSchemaView: React.FC<DatabaseSchemaViewProps> = ({ onCopy, 
                   selectedCategory === c ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-800 text-slate-400 hover:text-white'
                 }`}
               >
-                {c === 'all' ? 'All (11)' : c}
+                {c === 'all' ? 'All (12)' : c}
               </button>
             ))}
           </div>
@@ -755,7 +793,7 @@ export const DatabaseSchemaView: React.FC<DatabaseSchemaViewProps> = ({ onCopy, 
           Can the Database Store Actual Resumes (PDF, Word, TXT, RTF, Scans)?
         </h3>
         <p className="text-xs sm:text-sm text-slate-300 leading-relaxed">
-          <strong className="text-emerald-400">Yes, absolutely.</strong> There are two supported methods in this backend architecture:
+          <strong className="text-emerald-400">Yes, absolutely.</strong> Your updated database schema handles both file uploads and cloud links seamlessly via the <code className="text-amber-300 font-mono">candidate_resumes</code> and <code className="text-amber-300 font-mono">candidates</code> models:
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4 pt-2">
@@ -763,37 +801,39 @@ export const DatabaseSchemaView: React.FC<DatabaseSchemaViewProps> = ({ onCopy, 
           <div className="p-4 rounded-xl bg-slate-900 border border-slate-700/80 space-y-2.5">
             <div className="flex items-center space-x-2">
               <span className="w-2 h-2 rounded-full bg-emerald-400" />
-              <span className="font-bold text-sm text-emerald-400">Method A: Supabase Storage Bucket (Recommended)</span>
+              <span className="font-bold text-sm text-emerald-400">Method A: Uploaded File Storage (PDF, DOCX, ODT, RTF, Scans)</span>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed font-sans">
-              The physical file bytes (PDF, DOC, DOCX, TXT, RTF, or scan images) are stored in the <code className="text-amber-300 font-mono">candidate-resumes</code> object storage bucket, while the database records:
+              Candidates upload binary CV files directly via the multipart API. The binary payload is stored in the <code className="text-amber-300 font-mono">candidate-resumes</code> Supabase bucket, while the database records complete file metadata:
             </p>
             <ul className="text-[11px] text-slate-400 space-y-1 font-mono">
-              <li>• <span className="text-cyan-300">storage_path</span>: e.g. <code className="text-slate-200">cand_id/resume.pdf</code></li>
-              <li>• <span className="text-cyan-300">resume_url</span>: Signed download URL (valid 1 yr for recruiters)</li>
-              <li>• <span className="text-cyan-300">mime_type</span> & <span className="text-cyan-300">file_size_bytes</span>: Fast inspection without loading files</li>
+              <li>• <span className="text-cyan-300">original_filename</span>: e.g. <code className="text-slate-200">Basheer_HVAC_CV.pdf</code></li>
+              <li>• <span className="text-cyan-300">storage_bucket</span> & <span className="text-cyan-300">storage_path</span>: Location in bucket</li>
+              <li>• <span className="text-cyan-300">resume_source</span>: set to <code className="text-emerald-300">'uploaded_file'</code></li>
+              <li>• <span className="text-cyan-300">is_primary</span>: <code className="text-amber-300">true</code> for default screening CV</li>
             </ul>
             <div className="p-2 rounded bg-slate-850 text-[10px] text-slate-400 border border-slate-800">
-              ⚡ <strong>Advantage:</strong> Keeps the PostgreSQL database lightweight, enables fast queries & backups, and supports global CDN delivery.
+              ⚡ <strong>Advantage:</strong> Fast, non-bloating, highly scalable with CDN download links and automated recruiter authorization.
             </div>
           </div>
 
-          {/* Method B: Direct BYTEA column */}
+          {/* Method B: Cloud Drive Links */}
           <div className="p-4 rounded-xl bg-slate-900 border border-slate-700/80 space-y-2.5">
             <div className="flex items-center space-x-2">
               <span className="w-2 h-2 rounded-full bg-cyan-400" />
-              <span className="font-bold text-sm text-cyan-400">Method B: Direct Database Binary Column (BYTEA)</span>
+              <span className="font-bold text-sm text-cyan-400">Method B: External Google Drive / OneDrive Links</span>
             </div>
             <p className="text-xs text-slate-300 leading-relaxed font-sans">
-              PostgreSQL also supports storing raw binary file data directly inside table rows using the <code className="text-amber-300 font-mono">file_data BYTEA</code> column in <code className="text-amber-300 font-mono">application_documents</code>.
+              Candidates providing Google Drive or OneDrive links are tracked with full backward and forward compatibility:
             </p>
             <ul className="text-[11px] text-slate-400 space-y-1 font-mono">
-              <li>• Accepts raw bytes of any PDF, Word doc, TXT, or image</li>
-              <li>• Saved directly into the PostgreSQL database cluster</li>
-              <li>• Retrievable via standard SQL query without external buckets</li>
+              <li>• <span className="text-cyan-300">resume_source</span>: set to <code className="text-purple-300">'drive_link'</code></li>
+              <li>• <span className="text-cyan-300">drive_link</span> & <span className="text-cyan-300">resume_url</span>: Direct cloud sharing link</li>
+              <li>• Multi-version entries stored in <code className="text-amber-300 font-mono">candidate_resumes</code></li>
+              <li>• Fast verification without needing file re-uploads</li>
             </ul>
             <div className="p-2 rounded bg-slate-850 text-[10px] text-slate-400 border border-slate-800">
-              💾 <strong>Advantage:</strong> 100% self-contained database backups where the database dump includes all actual resumes.
+              🔗 <strong>Advantage:</strong> Eliminates file size bottlenecks for large multimedia portfolios or certificates stored on Google Drive.
             </div>
           </div>
         </div>
@@ -807,7 +847,7 @@ export const DatabaseSchemaView: React.FC<DatabaseSchemaViewProps> = ({ onCopy, 
             <Tag className="w-4 h-4" />
             <span>PostgreSQL Custom Enums</span>
           </div>
-          <h4 className="text-base font-bold text-white">Status Types Defined in Schema</h4>
+          <h4 className="text-base font-bold text-white">3 Status Types Defined in Schema</h4>
 
           <div className="space-y-4">
             {ENUMS_INFO.map(en => (
@@ -835,7 +875,7 @@ export const DatabaseSchemaView: React.FC<DatabaseSchemaViewProps> = ({ onCopy, 
             <ShieldCheck className="w-4 h-4" />
             <span>Performance Query Indexes</span>
           </div>
-          <h4 className="text-base font-bold text-white">9 Composite & Relational Indexes</h4>
+          <h4 className="text-base font-bold text-white">11 Composite & Relational Indexes</h4>
 
           <div className="space-y-2 text-xs font-mono max-h-[380px] overflow-y-auto pr-1">
             {INDEXES_INFO.map(idx => (
