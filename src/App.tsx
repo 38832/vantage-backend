@@ -25,6 +25,7 @@ import {
   BookOpen,
   Cpu
 } from 'lucide-react';
+import { DatabaseSchemaView } from './DatabaseSchemaView';
 
 interface Endpoint {
   method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
@@ -663,62 +664,7 @@ export default function App() {
 
         {/* Tab 3: Database & Storage Schema */}
         {activeTab === 'database' && (
-          <div className="space-y-6">
-            <div className="bg-slate-900 border border-slate-800 p-6 rounded-2xl">
-              <div className="flex items-center justify-between pb-4 border-b border-slate-800">
-                <div>
-                  <h3 className="text-lg font-bold text-white">PostgreSQL + Supabase Database Schema</h3>
-                  <p className="text-xs text-slate-400 mt-0.5">
-                    Location: <code className="text-cyan-400 font-mono">database/schema.sql</code> (Execute in your Supabase SQL Editor)
-                  </p>
-                </div>
-                <div className="flex items-center space-x-2 text-xs text-slate-400 font-mono">
-                  <span>11 Tables</span> • <span>2 Storage Buckets</span> • <span>RLS Configured</span>
-                </div>
-              </div>
-
-              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mt-6 text-xs">
-                <div className="p-4 bg-slate-850 rounded-xl border border-slate-800">
-                  <span className="font-mono text-amber-400 font-bold block mb-1">job_categories</span>
-                  <p className="text-slate-400 text-[11px]">id, slug (unique), name, description, parent_category_id, is_active</p>
-                </div>
-                <div className="p-4 bg-slate-850 rounded-xl border border-slate-800">
-                  <span className="font-mono text-amber-400 font-bold block mb-1">jobs</span>
-                  <p className="text-slate-400 text-[11px]">id, category_id, title, company_name, location_country, salary_min/max, status, urgent, featured</p>
-                </div>
-                <div className="p-4 bg-slate-850 rounded-xl border border-slate-800">
-                  <span className="font-mono text-amber-400 font-bold block mb-1">candidates</span>
-                  <p className="text-slate-400 text-[11px]">id, full_name, email, phone, passport_status, years_experience, preferred_country, resume_url</p>
-                </div>
-                <div className="p-4 bg-slate-850 rounded-xl border border-slate-800">
-                  <span className="font-mono text-amber-400 font-bold block mb-1">applications</span>
-                  <p className="text-slate-400 text-[11px]">id, candidate_id, job_id, application_status, recruiter_assigned, interview_date, notes</p>
-                </div>
-                <div className="p-4 bg-slate-850 rounded-xl border border-slate-800">
-                  <span className="font-mono text-amber-400 font-bold block mb-1">employer_inquiries</span>
-                  <p className="text-slate-400 text-[11px]">id, company_name, contact_name, phone, job_title, number_of_positions, urgency</p>
-                </div>
-                <div className="p-4 bg-slate-850 rounded-xl border border-slate-800">
-                  <span className="font-mono text-amber-400 font-bold block mb-1">service_requests</span>
-                  <p className="text-slate-400 text-[11px]">id, service_type (visa / documentation / recruitment / mobilization), phone, notes</p>
-                </div>
-              </div>
-
-              <div className="mt-6 p-4 bg-slate-950 rounded-xl border border-slate-800">
-                <span className="text-xs font-bold text-white block mb-2">Supabase Storage Configuration:</span>
-                <div className="space-y-1.5 text-xs text-slate-300 font-mono">
-                  <div className="flex items-center space-x-2">
-                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                    <span>Bucket: <strong className="text-amber-400">candidate-resumes</strong> (PDF, DOC, DOCX up to 10MB)</span>
-                  </div>
-                  <div className="flex items-center space-x-2">
-                    <span className="w-2 h-2 rounded-full bg-blue-400" />
-                    <span>Bucket: <strong className="text-cyan-400">company-documents</strong> (Client demand letters & contracts)</span>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
+          <DatabaseSchemaView onCopy={handleCopy} copiedSnippet={copiedSnippet} />
         )}
       </main>
 
