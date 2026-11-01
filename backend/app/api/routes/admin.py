@@ -15,6 +15,7 @@ from app.schemas.application import (
     ApplicationOut, ApplicationUpdate, ATSNoteCreate, ATSNoteOut, ATSDashboardStats
 )
 from app.schemas.job import JobUpdate, JobDetailOut
+from app.core.logger import log_query_details, log_mutation_details
 
 router = APIRouter()
 
@@ -50,6 +51,16 @@ async def get_ats_dashboard_stats(db: AsyncSession = Depends(get_db)):
         rejected=rows.get(ApplicationStatus.rejected, 0)
     )
 
+    log_query_details(
+        entity="Application",
+        operation="GROUP BY / AGGREGATE",
+        filters=[],
+        sorting=["status ASC"],
+        returned_count=len(rows),
+        total_count=total,
+        sample_preview=f"Total: {total}, New: {stats.new_applications}, Shortlisted: {stats.shortlisted}, Hired: {stats.hired}"
+    )
+
     return ApiResponse.ok(stats)
 
 
@@ -66,12 +77,15 @@ async def list_ats_applications(
     Admin recruiter view of candidate applications across stages
     """
     conditions = []
+    applied_filters = []
 
     if status_filter:
         conditions.append(Application.application_status == status_filter)
+        applied_filters.append(f"status = '{status_filter.value}'")
 
     if recruiter_assigned:
         conditions.append(func.lower(Application.recruiter_assigned) == recruiter_assigned.lower())
+        applied_filters.append(f"recruiter = '{recruiter_assigned}'")
 
     if search:
         search_term = f"%{search.lower()}%"
@@ -83,6 +97,7 @@ async def list_ats_applications(
                 func.lower(Job.title).like(search_term)
             )
         )
+        applied_filters.append(f"search LIKE '{search}' (name/phone/title)")
 
     base_query = (
         select(Application)
@@ -102,9 +117,21 @@ async def list_ats_applications(
     total = total_res.scalar() or 0
 
     offset = (page - 1) * limit
+    sorting_fields = ["Application.created_at DESC"]
     data_query = base_query.order_by(Application.created_at.desc()).offset(offset).limit(limit)
     res = await db.execute(data_query)
     applications = res.scalars().all()
+
+    # Log sorting criteria, applied filters, and returned count
+    log_query_details(
+        entity="Application",
+        operation="SELECT (ATS Application Pipeline)",
+        filters=applied_filters,
+        sorting=sorting_fields,
+        returned_count=len(applications),
+        total_count=total,
+        sample_preview=[f"{a.candidate.full_name if a.candidate else 'Unknown'} [{a.application_status.value}]" for a in applications[:3]] if applications else None
+    )
 
     # Format list
     out_list = []
@@ -154,11 +181,26 @@ async def update_application_status(
         raise HTTPException(status_code=404, detail="Application not found")
 
     update_dict = payload.model_dump(exclude_unset=True)
-    for field, val in update_dict.items():
-        setattr(app, field, val)
+    changes_diff = {}
+    for field, new_val in update_dict.items():
+        old_val = getattr(app, field, None)
+        old_val_display = old_val.value if hasattr(old_val, "value") else old_val
+        new_val_display = new_val.value if hasattr(new_val, "value") else new_val
+        if str(old_val_display) != str(new_val_display):
+            changes_diff[field] = (old_val_display, new_val_display)
+        setattr(app, field, new_val)
 
     await db.commit()
     await db.refresh(app)
+
+    # Log exact updated fields and diff
+    log_mutation_details(
+        entity_name="Application",
+        entity_id=application_id,
+        operation="UPDATE",
+        changes=changes_diff if changes_diff else update_dict,
+        details=f"Current Status: '{app.application_status.value}', Recruiter: '{app.recruiter_assigned}'"
+    )
 
     return ApiResponse.ok({
         "id": str(app.id),
@@ -191,6 +233,17 @@ async def add_ats_note(
     await db.commit()
     await db.refresh(note)
 
+    log_mutation_details(
+        entity_name="ATSNote",
+        entity_id=note.id,
+        operation="INSERT",
+        changes={
+            "application_id": str(application_id),
+            "author_name": payload.author_name,
+            "note_preview": payload.note[:60] + "..." if len(payload.note) > 60 else payload.note
+        }
+    )
+
     return ApiResponse.ok(note)
 
 
@@ -209,11 +262,26 @@ async def update_job(
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
 
-    for field, val in payload.model_dump(exclude_unset=True).items():
-        setattr(job, field, val)
+    update_dict = payload.model_dump(exclude_unset=True)
+    changes_diff = {}
+    for field, new_val in update_dict.items():
+        old_val = getattr(job, field, None)
+        old_val_display = old_val.value if hasattr(old_val, "value") else old_val
+        new_val_display = new_val.value if hasattr(new_val, "value") else new_val
+        if str(old_val_display) != str(new_val_display):
+            changes_diff[field] = (old_val_display, new_val_display)
+        setattr(job, field, new_val)
 
     await db.commit()
     await db.refresh(job)
+
+    log_mutation_details(
+        entity_name="Job",
+        entity_id=job_id,
+        operation="UPDATE",
+        changes=changes_diff if changes_diff else update_dict,
+        details=f"Job Title: '{job.title}', Status: '{job.status.value}'"
+    )
 
     return ApiResponse.ok(job)
 
@@ -235,8 +303,23 @@ async def delete_or_archive_job(
 
     if hard_delete:
         await db.delete(job)
+        log_mutation_details(
+            entity_name="Job",
+            entity_id=job_id,
+            operation="DELETE",
+            changes={"mode": "hard_delete", "permanently_deleted": True},
+            details=f"Permanently purged Job '{job.title}'"
+        )
     else:
+        old_status = job.status.value
         job.status = JobStatus.closed
+        log_mutation_details(
+            entity_name="Job",
+            entity_id=job_id,
+            operation="UPDATE",
+            changes={"status": (old_status, "closed"), "mode": "soft_close"},
+            details=f"Soft-closed Job '{job.title}'"
+        )
 
     await db.commit()
 

@@ -13,6 +13,7 @@ from app.models.job import Job
 from app.schemas.response import ApiResponse
 from app.schemas.application import CandidateApplicationCreate, CandidateResumeOut
 from app.services.supabase_storage import supabase_storage
+from app.core.logger import log_mutation_details, log_query_details
 
 router = APIRouter()
 
@@ -114,6 +115,30 @@ async def quick_apply(
     db.add(application)
     await db.commit()
     await db.refresh(application)
+
+    log_mutation_details(
+        entity_name="Candidate",
+        entity_id=candidate.id,
+        operation="INSERT" if candidate.created_at == candidate.updated_at else "UPDATE",
+        changes={
+            "full_name": candidate.full_name,
+            "phone": candidate.phone,
+            "job_title": candidate.current_job_title,
+            "resume_source": candidate.resume_source.value,
+            "resume_url": candidate.resume_url,
+        }
+    )
+    log_mutation_details(
+        entity_name="Application",
+        entity_id=application.id,
+        operation="INSERT",
+        changes={
+            "candidate_id": str(candidate.id),
+            "job_id": str(payload.job_id) if payload.job_id else None,
+            "status": application.application_status.value,
+            "source_channel": "quick_apply",
+        }
+    )
 
     return ApiResponse.ok({
         "application_id": str(application.id),
@@ -268,6 +293,31 @@ async def quick_apply_multipart(
     await db.commit()
     await db.refresh(application)
 
+    log_mutation_details(
+        entity_name="Candidate",
+        entity_id=candidate.id,
+        operation="INSERT",
+        changes={
+            "full_name": candidate.full_name,
+            "phone": candidate.phone,
+            "job_title": candidate.current_job_title,
+            "resume_source": candidate.resume_source.value,
+            "has_resume": candidate.has_resume,
+            "resume_file_name": candidate.resume_file_name,
+        }
+    )
+    log_mutation_details(
+        entity_name="Application",
+        entity_id=application.id,
+        operation="INSERT",
+        changes={
+            "candidate_id": str(candidate.id),
+            "job_id": str(job_uuid) if job_uuid else None,
+            "source_channel": "portal_multipart",
+            "status": application.application_status.value,
+        }
+    )
+
     return ApiResponse.ok({
         "application_id": str(application.id),
         "candidate_id": str(candidate.id),
@@ -285,6 +335,7 @@ async def get_candidate_resumes(
     """
     List all resumes associated with a candidate from the candidate_resumes table
     """
+    sorting_fields = ["is_primary DESC", "created_at DESC"]
     query = (
         select(CandidateResume)
         .where(CandidateResume.candidate_id == candidate_id)
@@ -292,6 +343,14 @@ async def get_candidate_resumes(
     )
     result = await db.execute(query)
     resumes = result.scalars().all()
+    log_query_details(
+        entity="CandidateResume",
+        operation="SELECT (Candidate Resumes)",
+        filters=[f"candidate_id = '{candidate_id}'"],
+        sorting=sorting_fields,
+        returned_count=len(resumes),
+        sample_preview=[f"{r.original_filename} (primary={r.is_primary}, src={r.source.value})" for r in resumes] if resumes else None
+    )
     return ApiResponse.ok(resumes)
 
 
@@ -332,6 +391,20 @@ async def upload_application_document(
     db.add(doc)
     await db.commit()
     await db.refresh(doc)
+
+    log_mutation_details(
+        entity_name="ApplicationDocument",
+        entity_id=doc.id,
+        operation="INSERT",
+        changes={
+            "application_id": str(application_id),
+            "candidate_id": str(application.candidate_id),
+            "document_type": document_type,
+            "filename": file.filename,
+            "storage_path": storage_res.get("storage_path"),
+            "file_size_bytes": len(file_bytes)
+        }
+    )
 
     return ApiResponse.ok({
         "id": str(doc.id),

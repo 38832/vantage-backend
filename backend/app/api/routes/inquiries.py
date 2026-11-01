@@ -8,6 +8,7 @@ from app.models.inquiry import EmployerInquiry
 from app.models.service_request import ServiceRequest
 from app.schemas.response import ApiResponse
 from app.schemas.inquiry import EmployerInquiryCreate, ServiceRequestCreate
+from app.core.logger import log_mutation_details
 
 router = APIRouter()
 
@@ -36,6 +37,12 @@ async def create_employer_inquiry(
         )
         db.add(employer)
         await db.flush()
+        log_mutation_details(
+            entity_name="Employer",
+            entity_id=employer.id,
+            operation="INSERT",
+            changes={"company_name": employer.company_name, "email": employer.email, "contact": employer.contact_name}
+        )
 
     inquiry = EmployerInquiry(
         employer_id=employer.id,
@@ -59,6 +66,19 @@ async def create_employer_inquiry(
     db.add(inquiry)
     await db.commit()
     await db.refresh(inquiry)
+
+    log_mutation_details(
+        entity_name="EmployerInquiry",
+        entity_id=inquiry.id,
+        operation="INSERT",
+        changes={
+            "company_name": inquiry.company_name,
+            "job_title": inquiry.job_title,
+            "positions": inquiry.number_of_positions,
+            "urgency": inquiry.urgency,
+            "country": inquiry.country
+        }
+    )
 
     return ApiResponse.ok({
         "id": str(inquiry.id),
@@ -88,6 +108,18 @@ async def create_service_request(
     db.add(request)
     await db.commit()
     await db.refresh(request)
+
+    log_mutation_details(
+        entity_name="ServiceRequest",
+        entity_id=request.id,
+        operation="INSERT",
+        changes={
+            "service_type": request.service_type,
+            "contact_name": request.contact_name,
+            "company": request.company_name,
+            "city": request.city
+        }
+    )
 
     return ApiResponse.ok({
         "id": str(request.id),

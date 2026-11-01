@@ -22,6 +22,11 @@ class Settings(BaseSettings):
     allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000,https://ugetjob.com,https://www.ugetjob.com"
     secret_key: str = "secret-key-change-me"
 
+    # Detailed Console Logging Toggle
+    # Set to True to print full request/response bodies, sorting criteria, and mutation diffs in terminal
+    enable_detailed_logs: bool = True
+    log_payload_max_bytes: int = 25000
+
     @property
     def cors_origins(self) -> List[str]:
         return [origin.strip() for origin in self.allowed_origins.split(",") if origin.strip()]

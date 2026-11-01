@@ -196,6 +196,8 @@ Both return HTTP 200 and the standard success envelope containing an ID, status 
 | POST | `/api/admin/ats/applications/{application_id}/notes` | None in current implementation | Add internal note |
 | PATCH | `/api/admin/jobs/{job_id}` | None in current implementation | Update selected job fields |
 | DELETE | `/api/admin/jobs/{job_id}` | None in current implementation | Soft-close or hard-delete |
+| GET | `/api/admin/logging` | None in current implementation | Check dynamic terminal logging status |
+| POST | `/api/admin/logging/toggle` | None in current implementation | Dynamically switch detailed logging ON/OFF (`{"enabled": true/false}`) |
 
 ATS list query parameters: `status`, `recruiter_assigned`, `search`, `page` (default 1, minimum 1), `limit` (default 20, 1-100).
 

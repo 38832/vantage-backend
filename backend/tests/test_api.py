@@ -432,3 +432,26 @@ async def test_dashboard_counts(client, db_session):
     assert data["shortlisted"] == 1
     assert data["visa_pending"] == 1
     assert data["hired"] == 1
+
+
+@pytest.mark.asyncio
+async def test_dynamic_logging_status_and_toggle(client):
+    # Check default status
+    res = await client.get("/api/admin/logging")
+    assert res.status_code == 200
+    assert res.json()["success"] is True
+    assert "detailed_logs_enabled" in res.json()
+
+    # Toggle off
+    toggle_res = await client.post("/api/admin/logging/toggle", json={"enabled": False})
+    assert toggle_res.status_code == 200
+    assert toggle_res.json()["detailed_logs_enabled"] is False
+
+    # Check status reflects disabled
+    status_off = await client.get("/api/admin/logging")
+    assert status_off.json()["detailed_logs_enabled"] is False
+
+    # Toggle back on
+    toggle_on = await client.post("/api/admin/logging/toggle", json={"enabled": True})
+    assert toggle_on.status_code == 200
+    assert toggle_on.json()["detailed_logs_enabled"] is True

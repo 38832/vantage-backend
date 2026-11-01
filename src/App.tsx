@@ -23,9 +23,11 @@ import {
   ChevronRight,
   Search,
   BookOpen,
-  Cpu
+  Cpu,
+  LayoutDashboard
 } from 'lucide-react';
 import { DatabaseSchemaView } from './DatabaseSchemaView';
+import { AdminDashboardView } from './AdminDashboardView';
 
 interface Endpoint {
   method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
@@ -369,15 +371,61 @@ const ENDPOINTS: Endpoint[] = [
         created_at: '2026-10-30T10:00:00Z'
       }
     }
+  },
+  {
+    method: 'GET',
+    path: '/api/admin/logging',
+    category: 'Admin ATS',
+    summary: 'Get Detailed Logging Status',
+    description: 'Check whether verbose dynamic terminal logging is currently active (includes full payloads, query sorting, returned counts, and update diffs).',
+    responseBody: {
+      success: true,
+      detailed_logging_enabled: true,
+      config_setting_enabled: true,
+      status: 'enabled'
+    }
+  },
+  {
+    method: 'POST',
+    path: '/api/admin/logging/toggle',
+    category: 'Admin ATS',
+    summary: 'Toggle Detailed Logging Dynamically',
+    description: 'Dynamically switch terminal logging on or off at runtime without restarting the server.',
+    requestBody: {
+      enabled: true
+    },
+    responseBody: {
+      success: true,
+      detailed_logging_enabled: true,
+      message: 'Detailed terminal logging enabled'
+    }
   }
 ];
 
 export default function App() {
-  const [activeTab, setActiveTab] = useState<'endpoints' | 'quickstart' | 'database' | 'code'>('endpoints');
+  const [activeTab, setActiveTab] = useState<'endpoints' | 'quickstart' | 'database' | 'admin'>('endpoints');
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [activeEndpoint, setActiveEndpoint] = useState<Endpoint>(ENDPOINTS[2]); // GET /api/jobs
   const [copiedSnippet, setCopiedSnippet] = useState(false);
+
+  // Sync tab with URL hash for direct links (e.g., #admin)
+  React.useEffect(() => {
+    const parseHash = () => {
+      const hash = window.location.hash.replace('#', '');
+      if (hash === 'admin' || hash === 'endpoints' || hash === 'quickstart' || hash === 'database') {
+        setActiveTab(hash as any);
+      }
+    };
+    parseHash();
+    window.addEventListener('hashchange', parseHash);
+    return () => window.removeEventListener('hashchange', parseHash);
+  }, []);
+
+  const switchTab = (tab: 'endpoints' | 'quickstart' | 'database' | 'admin') => {
+    setActiveTab(tab);
+    window.location.hash = tab;
+  };
 
   const categories = ['all', 'Jobs', 'Applications', 'Inquiries', 'Admin ATS', 'Health'];
 
