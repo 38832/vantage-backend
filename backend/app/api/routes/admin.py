@@ -136,28 +136,89 @@ async def list_ats_applications(
     # Format list
     out_list = []
     for app in applications:
+        cand = app.candidate
+        jb = app.job
+
+        cand_name = cand.full_name if cand else "Unknown Candidate"
+        cand_phone = cand.phone if cand else None
+        cand_email = cand.email if cand else None
+        cand_whatsapp = cand.whatsapp if (cand and cand.whatsapp) else cand_phone
+        cand_nat = cand.nationality if cand else "Global"
+        cand_city = cand.current_city if cand else None
+        cand_country = cand.current_country if cand else None
+        cand_trade = (
+            cand.current_job_title
+            if (cand and cand.current_job_title)
+            else (jb.title if jb else "General Deployment Candidate")
+        )
+
+        dest_country = (
+            jb.location_country
+            if (jb and jb.location_country)
+            else (cand.preferred_country if (cand and cand.preferred_country) else "GCC / Overseas")
+        )
+        dest_city = jb.location_city if (jb and jb.location_city) else (cand.preferred_city if cand else None)
+
+        exp_years = cand.years_experience if (cand and cand.years_experience is not None) else 0
+        exp_formatted = f"{exp_years} yrs" if exp_years else "Fresher / Entry"
+
+        pass_status = cand.passport_status if (cand and cand.passport_status) else "ready"
+        pass_num = cand.passport_number if cand else None
+
+        res_source = (
+            cand.resume_source.value
+            if (cand and hasattr(cand.resume_source, "value"))
+            else ("uploaded_file" if (cand and cand.resume_file_name) else "drive_link")
+        )
+        res_file_name = cand.resume_file_name if cand else None
+
         out_list.append(
             ApplicationOut(
                 id=app.id,
                 candidate_id=app.candidate_id,
                 job_id=app.job_id,
-                candidate_name=app.candidate.full_name if app.candidate else "Unknown",
-                candidate_phone=app.candidate.phone if app.candidate else None,
-                candidate_email=app.candidate.email if app.candidate else None,
-                candidate_nationality=app.candidate.nationality if app.candidate else None,
-                candidate_job_title=app.candidate.current_job_title if app.candidate else None,
-                candidate_role=app.candidate.current_job_title if app.candidate else None,
-                job_title=app.job.title if app.job else "General Deployment Application",
-                company_name=app.job.company_name if app.job else "Nouman's Consultancy Pool",
+                candidate_name=cand_name,
+                name=cand_name,
+                full_name=cand_name,
+                candidate_phone=cand_phone,
+                phone=cand_phone,
+                candidate_email=cand_email,
+                email=cand_email,
+                candidate_whatsapp=cand_whatsapp,
+                whatsapp=cand_whatsapp,
+                candidate_nationality=cand_nat,
+                nationality=cand_nat,
+                candidate_city=cand_city,
+                candidate_country=cand_country,
+                candidate_job_title=cand_trade,
+                candidate_role=cand_trade,
+                role=cand_trade,
+                trade=cand_trade,
+                target_trade=cand_trade,
+                job_title=jb.title if jb else "General Deployment Application",
+                company_name=jb.company_name if jb else "Nouman's Consultancy Pool",
+                destination=dest_country,
+                destination_country=dest_country,
+                location_country=dest_country,
+                location_city=dest_city,
+                experience_years=exp_years,
+                years_experience=exp_years,
+                experience=exp_formatted,
+                passport=pass_status,
+                passport_status=pass_status,
+                passport_number=pass_num,
                 application_status=app.application_status,
+                status=app.application_status.value,
                 recruiter_assigned=app.recruiter_assigned,
                 interview_date=app.interview_date,
                 interview_notes=app.interview_notes,
-                document_status=app.document_status,
-                medical_status=app.medical_status,
-                visa_status=app.visa_status,
+                document_status=app.document_status or "pending",
+                medical_status=app.medical_status or "pending",
+                visa_status=app.visa_status or "not_started",
                 notes=app.notes,
-                resume_url=app.candidate.resume_url if app.candidate else None,
+                resume_url=cand.resume_url if cand else None,
+                resume_source=res_source,
+                resume_file_name=res_file_name,
                 created_at=app.created_at
             )
         )

@@ -100,15 +100,50 @@ class ApplicationOut(BaseModel):
     id: uuid.UUID
     candidate_id: uuid.UUID
     job_id: Optional[uuid.UUID] = None
+
+    # Candidate identification & contact
     candidate_name: Optional[str] = None
+    name: Optional[str] = None
+    full_name: Optional[str] = None
     candidate_phone: Optional[str] = None
+    phone: Optional[str] = None
     candidate_email: Optional[str] = None
+    email: Optional[str] = None
+    candidate_whatsapp: Optional[str] = None
+    whatsapp: Optional[str] = None
     candidate_nationality: Optional[str] = None
+    nationality: Optional[str] = None
+    candidate_city: Optional[str] = None
+    candidate_country: Optional[str] = None
+
+    # Target Trade & Role designations
     candidate_job_title: Optional[str] = None
     candidate_role: Optional[str] = None
+    role: Optional[str] = None
+    trade: Optional[str] = None
+    target_trade: Optional[str] = None
+
+    # Job & Deployment Destination
     job_title: Optional[str] = None
     company_name: Optional[str] = None
+    destination: Optional[str] = None
+    destination_country: Optional[str] = None
+    location_country: Optional[str] = None
+    location_city: Optional[str] = None
+
+    # Experience details
+    experience_years: Optional[int] = 0
+    years_experience: Optional[int] = 0
+    experience: Optional[str] = None
+
+    # Passport & Readiness status
+    passport: Optional[str] = "ready"
+    passport_status: Optional[str] = "ready"
+    passport_number: Optional[str] = None
+
+    # ATS Pipeline & Verification stages
     application_status: ApplicationStatus
+    status: Optional[str] = None
     recruiter_assigned: Optional[str] = None
     interview_date: Optional[datetime] = None
     interview_notes: Optional[str] = None
@@ -116,7 +151,11 @@ class ApplicationOut(BaseModel):
     medical_status: Optional[str] = "pending"
     visa_status: Optional[str] = "not_started"
     notes: Optional[str] = None
+
+    # Resumes and documents
     resume_url: Optional[str] = None
+    resume_source: Optional[str] = None
+    resume_file_name: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

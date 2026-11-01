@@ -322,7 +322,12 @@ async def test_ats_list_filters_search_and_pagination(client, db_session):
     })
     assert response.status_code == 200, response.text
     assert response.json()["meta"]["total"] == 1
-    assert response.json()["data"][0]["candidate_name"] == "Document Candidate"
+    app_data = response.json()["data"][0]
+    assert app_data["candidate_name"] == "Document Candidate"
+    assert app_data["phone"] == "+971500000333"
+    assert "target_trade" in app_data
+    assert "destination" in app_data
+    assert "passport_status" in app_data
 
 
 @pytest.mark.asyncio

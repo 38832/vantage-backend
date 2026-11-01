@@ -317,18 +317,40 @@ const ENDPOINTS: Endpoint[] = [
       success: true,
       data: [
         {
-          id: 'uuid',
-          candidate_id: 'uuid',
-          candidate_name: 'Mohd Basheer',
-          candidate_phone: '+971500000000',
-          job_title: 'Substation Electrical Foreman',
-          application_status: 'shortlisted',
+          id: '322dd461-767a-4d8b-b3af-2d12771aa7d3',
+          candidate_id: 'c201-767a-4d8b-b3af-2d12771aa7d3',
+          candidate_name: 'Abutalha Shaikh',
+          name: 'Abutalha Shaikh',
+          full_name: 'Abutalha Shaikh',
+          candidate_phone: '+919766065167',
+          phone: '+919766065167',
+          candidate_whatsapp: '+919766065167',
+          candidate_email: 'abutalha11503@gmail.com',
+          candidate_role: 'HVAC Chiller Specialist',
+          candidate_job_title: 'HVAC Chiller Specialist',
+          target_trade: 'HVAC Chiller Specialist',
+          trade: 'HVAC Chiller Specialist',
+          job_title: 'HVAC Chiller Specialist',
+          company_name: 'Gulf Facilities Management LLC',
+          destination: 'United Arab Emirates',
+          destination_country: 'United Arab Emirates',
+          location_country: 'United Arab Emirates',
+          experience_years: 5,
+          years_experience: 5,
+          experience: '5 yrs',
+          passport: 'ready',
+          passport_status: 'ready',
+          medical_status: 'cleared',
+          visa_status: 'ready_for_submission',
+          application_status: 'new',
+          status: 'new',
           recruiter_assigned: 'Nouman Qureshi',
-          interview_date: '2026-11-04T10:00:00Z',
-          created_at: '2026-10-30T09:00:00Z'
+          resume_url: 'https://ysaggxhpmmxbsjygucny.supabase.co/storage/v1/object/sign/candidate-resumes/322dd461-767a-4d8b-b3af-2d12771aa7d3/Abutalha_Shaikh_HVAC_Resume.pdf',
+          resume_source: 'uploaded_file',
+          created_at: '2026-10-31T08:17:50.765281Z'
         }
       ],
-      meta: { page: 1, limit: 20, total: 50 }
+      meta: { page: 1, limit: 20, total: 2 }
     }
   },
   {
@@ -485,7 +507,7 @@ export default function App() {
           {/* Navigation Bar */}
           <nav className="flex items-center space-x-1 bg-slate-800/80 p-1 rounded-xl border border-slate-700/60 text-xs font-semibold">
             <button
-              onClick={() => setActiveTab('endpoints')}
+              onClick={() => switchTab('endpoints')}
               className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-lg transition ${
                 activeTab === 'endpoints' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-300 hover:text-white'
               }`}
@@ -494,7 +516,7 @@ export default function App() {
               <span>API Endpoints</span>
             </button>
             <button
-              onClick={() => setActiveTab('quickstart')}
+              onClick={() => switchTab('quickstart')}
               className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-lg transition ${
                 activeTab === 'quickstart' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-300 hover:text-white'
               }`}
@@ -503,13 +525,22 @@ export default function App() {
               <span>Quickstart & Setup</span>
             </button>
             <button
-              onClick={() => setActiveTab('database')}
+              onClick={() => switchTab('database')}
               className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-lg transition ${
                 activeTab === 'database' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-300 hover:text-white'
               }`}
             >
               <Database className="w-4 h-4" />
               <span>SQL & Storage</span>
+            </button>
+            <button
+              onClick={() => switchTab('admin')}
+              className={`flex items-center space-x-1.5 px-3.5 py-2 rounded-lg transition ${
+                activeTab === 'admin' ? 'bg-amber-500 text-slate-950 font-bold' : 'text-slate-300 hover:text-white'
+              }`}
+            >
+              <LayoutDashboard className="w-4 h-4" />
+              <span>Applications & ATS</span>
             </button>
           </nav>
 
@@ -768,6 +799,11 @@ export default function App() {
         {/* Tab 3: Database & Storage Schema */}
         {activeTab === 'database' && (
           <DatabaseSchemaView onCopy={handleCopy} copiedSnippet={copiedSnippet} />
+        )}
+
+        {/* Tab 4: Candidate Applications & ATS */}
+        {activeTab === 'admin' && (
+          <AdminDashboardView onCopy={handleCopy} copiedSnippet={copiedSnippet} />
         )}
       </main>
 
