@@ -14,7 +14,7 @@ from app.schemas.response import ApiResponse, MetaData
 from app.schemas.application import (
     ApplicationOut, ApplicationUpdate, ATSNoteCreate, ATSNoteOut, ATSDashboardStats
 )
-from app.schemas.job import JobUpdate, JobDetailOut
+from app.schemas.job import JobUpdate, JobDetailOut, JobCreate, JobListItemOut
 from app.core.logger import log_query_details, log_mutation_details
 
 router = APIRouter()
@@ -389,3 +389,52 @@ async def delete_or_archive_job(
         "deleted": True,
         "mode": "hard_delete" if hard_delete else "closed"
     })
+
+
+@router.post("/jobs", response_model=ApiResponse[JobDetailOut], status_code=status.HTTP_201_CREATED)
+async def admin_create_job(payload: JobCreate, db: AsyncSession = Depends(get_db)):
+    """
+    Admin recruiter portal endpoint for 'Post New Requirement' / job vacancy.
+    Publishes requirement directly to the job vacancies catalog with status 'published'.
+    """
+    from app.api.routes.jobs import create_job_internal
+    job = await create_job_internal(payload, db)
+    return ApiResponse.ok(job)
+
+
+@router.post("/requirements", response_model=ApiResponse[JobDetailOut], status_code=status.HTTP_201_CREATED)
+async def admin_post_requirement(payload: JobCreate, db: AsyncSession = Depends(get_db)):
+    """
+    Alias endpoint for 'Post New Requirement' from admin portal.
+    """
+    from app.api.routes.jobs import create_job_internal
+    job = await create_job_internal(payload, db)
+    return ApiResponse.ok(job)
+
+
+@router.get("/jobs", response_model=ApiResponse[List[JobListItemOut]])
+async def admin_list_jobs(
+    status_filter: Optional[JobStatus] = Query(None, alias="status"),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Admin view of all job vacancies and requirements (including drafts, closed, and published)
+    """
+    query = select(Job).order_by(Job.posted_at.desc())
+    if status_filter:
+        query = query.where(Job.status == status_filter)
+    res = await db.execute(query)
+    jobs = res.scalars().all()
+    return ApiResponse.ok(jobs)
+
+
+@router.get("/requirements", response_model=ApiResponse[List[JobListItemOut]])
+async def admin_list_requirements(db: AsyncSession = Depends(get_db)):
+    """
+    Alias route for admin viewing all published and active requirements
+    """
+    query = select(Job).order_by(Job.posted_at.desc())
+    res = await db.execute(query)
+    jobs = res.scalars().all()
+    return ApiResponse.ok(jobs)
+

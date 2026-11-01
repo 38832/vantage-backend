@@ -124,6 +124,42 @@ const ENDPOINTS: Endpoint[] = [
   },
   {
     method: 'POST',
+    path: '/api/jobs',
+    category: 'Jobs',
+    summary: 'Post New Requirement / Job Vacancy',
+    description: 'Publish a new overseas manpower requirement or job vacancy. Sets status to published so it immediately appears in the Job Vacancies portal.',
+    requestBody: {
+      title: 'Heavy Crane Operator',
+      company_name: 'Saudi Binladin Group',
+      category: 'construction',
+      location_country: 'Saudi Arabia',
+      location_city: 'Riyadh',
+      openings_count: 8,
+      experience_min: 5,
+      salary_min: 3500,
+      salary_max: 4800,
+      salary_currency: 'SAR',
+      urgent: true,
+      job_description: 'Operate 100T mobile telescopic cranes on mega project sites.',
+      requirements: 'Valid GCC Heavy Equipment Operator License with clean record.',
+      benefits: 'Accommodation, transport, and comprehensive health insurance provided.'
+    },
+    responseBody: {
+      success: true,
+      data: {
+        id: '33333333-3333-3333-3333-333333333301',
+        title: 'Heavy Crane Operator',
+        company_name: 'Saudi Binladin Group',
+        location_country: 'Saudi Arabia',
+        location_city: 'Riyadh',
+        openings_count: 8,
+        status: 'published',
+        urgent: true
+      }
+    }
+  },
+  {
+    method: 'POST',
     path: '/api/applications/quick-apply',
     category: 'Applications',
     summary: 'Candidate Quick Apply (JSON)',

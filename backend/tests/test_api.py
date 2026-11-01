@@ -110,6 +110,50 @@ async def test_job_featured_and_urgent_endpoints(client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_post_new_requirement_and_appear_in_vacancies(client, db_session):
+    category = await seed_category(db_session)
+    payload = {
+        "title": "Heavy Crane Operator",
+        "company_name": "Saudi Binladin Group",
+        "category": "electrical",
+        "location_country": "Saudi Arabia",
+        "location_city": "Riyadh",
+        "vacancies": 8,
+        "experience_min": 5,
+        "salary_min": 3500.0,
+        "salary_max": 4800.0,
+        "salary_currency": "SAR",
+        "urgent": True,
+        "job_description": "Operate 100T mobile telescopic cranes on project sites.",
+        "skills": ["crane_operation", "rigging", "safety"]
+    }
+    # 1. Post new requirement via /api/jobs
+    post_res = await client.post("/api/jobs", json=payload)
+    assert post_res.status_code == 201, post_res.text
+    created_job = post_res.json()["data"]
+    assert created_job["title"] == "Heavy Crane Operator"
+    assert created_job["status"] == "published"
+    assert created_job["openings_count"] == 8
+
+    # 2. Verify it appears immediately in Job Vacancies list
+    list_res = await client.get("/api/jobs")
+    assert list_res.status_code == 200
+    job_titles = [j["title"] for j in list_res.json()["data"]]
+    assert "Heavy Crane Operator" in job_titles
+
+    # 3. Test alias /api/admin/requirements
+    admin_req_res = await client.post("/api/admin/requirements", json={
+        "job_title": "Piping QC Inspector",
+        "company": "Aramco EPC Joint Venture",
+        "country": "Saudi Arabia",
+        "vacancies": 3,
+        "description": "CSWIP 3.1 certified piping inspector"
+    })
+    assert admin_req_res.status_code == 201
+    assert admin_req_res.json()["data"]["title"] == "Piping QC Inspector"
+
+
+@pytest.mark.asyncio
 async def test_job_detail_and_not_found(client, db_session):
     category = await seed_category(db_session)
     job = await seed_job(db_session, category)
