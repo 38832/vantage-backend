@@ -414,15 +414,22 @@ EXECUTE FUNCTION update_updated_at_column();
 -- ---------------------------------------------------------------------
 
 INSERT INTO job_categories (id, slug, name, description) VALUES
-    ('11111111-1111-1111-1111-111111111101', 'construction', 'Construction & Civil', 'Civil engineering, masonry, scaffolding, and site foreman roles'),
+    ('11111111-1111-1111-1111-111111111101', 'construction', 'Construction & Engineering', 'Civil engineering, masonry, scaffolding, and site foreman roles'),
     ('11111111-1111-1111-1111-111111111102', 'engineering', 'Engineering & MEP', 'Mechanical, Electrical, Instrumentation and MEP engineering positions'),
     ('11111111-1111-1111-1111-111111111103', 'electrical', 'Electrical & Substation', 'Industrial electricians, panel board wiremen, and substation technicians'),
     ('11111111-1111-1111-1111-111111111104', 'hvac', 'HVAC & Refrigeration', 'Chiller specialists, central AC mechanics, and duct fabricators'),
     ('11111111-1111-1111-1111-111111111105', 'oil-and-gas', 'Oil & Gas / Offshore', 'Refinery technicians, 6G pipe welders, pipe fitters, and safety officers'),
     ('11111111-1111-1111-1111-111111111106', 'healthcare', 'Healthcare & Nursing', 'Registered nurses, hospital technicians, and patient care staff'),
     ('11111111-1111-1111-1111-111111111107', 'hospitality', 'Hospitality & Catering', 'Chefs, line cooks, stewards, hotel housekeeping, and waiters'),
-    ('11111111-1111-1111-1111-111111111108', 'logistics', 'Logistics & Heavy Drivers', 'Heavy trailer drivers, forklift operators, and warehouse storekeepers')
-ON CONFLICT (slug) DO NOTHING;
+    ('11111111-1111-1111-1111-111111111108', 'logistics', 'Logistics & Heavy Drivers', 'Heavy trailer drivers, forklift operators, and warehouse storekeepers'),
+    ('11111111-1111-1111-1111-111111111109', 'technical', 'Technical & Skilled', 'Electricians, welders, HVAC, plumbing, and instrument technicians'),
+    ('11111111-1111-1111-1111-111111111110', 'office', 'Office & Admin', 'Accountants, HR executives, document controllers, and reception staff'),
+    ('11111111-1111-1111-1111-111111111111', 'driver', 'Driver & Transport', 'Heavy and light drivers, forklift operators, and logistics coordinators'),
+    ('11111111-1111-1111-1111-111111111112', 'industrial', 'Industrial & Factory', 'Machine operators, packers, production helpers, and factory technicians'),
+    ('11111111-1111-1111-1111-111111111113', 'housekeeping', 'Housekeeping & Cleaning', 'Room attendants, facility cleaners, laundry, and janitorial teams')
+ON CONFLICT (slug) DO UPDATE SET
+    name = EXCLUDED.name,
+    description = EXCLUDED.description;
 
 INSERT INTO jobs (
     id, category_id, title, company_name, employer_contact_name, employer_email, employer_phone,

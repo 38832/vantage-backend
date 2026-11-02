@@ -58,12 +58,14 @@ async def test_categories_and_empty_categories(client, db_session):
     response = await client.get("/api/categories")
     assert response.status_code == 200
     assert response.json()["success"] is True
-    assert response.json()["data"] == []
+    assert {category["slug"] for category in response.json()["data"]} >= {
+        "construction", "technical", "office",
+    }
 
     await seed_category(db_session)
     response = await client.get("/api/categories")
     assert response.status_code == 200
-    assert response.json()["data"][0]["slug"] == "electrical"
+    assert "electrical" in {category["slug"] for category in response.json()["data"]}
 
 
 @pytest.mark.asyncio
@@ -120,6 +122,73 @@ async def test_job_detail_and_not_found(client, db_session):
 
     response = await client.get(f"/api/jobs/{uuid.uuid4()}")
     assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_create_published_job(client, db_session):
+    category = await seed_category(db_session)
+    response = await client.post("/api/jobs", json={
+        "category_id": str(category.id),
+        "title": "Site Electrician",
+        "company_name": "Gulf Contractors",
+        "location_country": "UAE",
+        "location_city": "Dubai",
+        "job_description": "Electrical installation work.",
+        "benefits": "Visa, accommodation",
+    })
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["status"] == "published"
+
+    list_response = await client.get("/api/jobs?limit=50")
+    assert list_response.status_code == 200
+    assert list_response.json()["data"][0]["title"] == "Site Electrician"
+
+
+@pytest.mark.asyncio
+async def test_create_job_parses_salary_and_categories(client, db_session):
+    category_response = await client.get("/api/categories")
+    categories = category_response.json()["data"]
+    technical = next(category for category in categories if category["slug"] == "technical")
+
+    single_salary = await client.post("/api/jobs", json={
+        "category_id": str(technical["id"]),
+        "title": "Demo Urgent",
+        "company_name": "ARAMCO",
+        "location_country": "Saudi Arabia",
+        "location_city": "Jeddah",
+        "job_description": "Construction requirement.",
+        "salary": "SAR 231111",
+    })
+    assert single_salary.status_code == 200, single_salary.text
+    assert float(single_salary.json()["data"]["salary_min"]) == 231111
+    assert single_salary.json()["data"]["salary_currency"] == "SAR"
+    assert single_salary.json()["data"]["salary_max"] is None
+
+    salary_range = await client.post("/api/jobs", json={
+        "category_id": str(technical["id"]),
+        "title": "Software Developer",
+        "company_name": "Société d'Exploitation de la Tour Eiffel (SETE)",
+        "location_country": "Europe",
+        "location_city": "Paris",
+        "job_description": "Software engineering role.",
+        "salary": "EUR 55,000 - 75,000 per year",
+    })
+    assert salary_range.status_code == 200, salary_range.text
+    data = salary_range.json()["data"]
+    assert data["salary_currency"] == "EUR"
+    assert float(data["salary_min"]) == 55000
+    assert float(data["salary_max"]) == 75000
+
+    no_salary = await client.post("/api/jobs", json={
+        "category_id": str(technical["id"]),
+        "title": "Entry Level",
+        "company_name": "Example",
+        "location_country": "Europe",
+        "job_description": "Training role.",
+    })
+    assert no_salary.status_code == 200
+    assert no_salary.json()["data"]["salary_min"] is None
 
 
 @pytest.mark.asyncio

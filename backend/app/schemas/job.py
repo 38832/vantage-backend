@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime
 from typing import Optional, List
-from pydantic import BaseModel, ConfigDict
+import re
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 from app.models.job import JobStatus
 
 class JobCategoryBase(BaseModel):
@@ -35,7 +36,7 @@ class JobBase(BaseModel):
     benefits: Optional[str] = None
     urgent: bool = False
     featured: bool = False
-    skills: List[str] = []
+    skills: List[str] = Field(default_factory=list)
     openings_count: int = 1
 
 class JobCreate(JobBase):
@@ -47,6 +48,26 @@ class JobCreate(JobBase):
     gender_preference: Optional[str] = None
     nationality_preference: Optional[str] = None
     deadline: Optional[datetime] = None
+    salary: Optional[str] = None
+
+    @model_validator(mode="before")
+    @classmethod
+    def parse_salary_text(cls, values):
+        if isinstance(values, dict) and values.get("salary") and not values.get("salary_min"):
+            salary_text = str(values["salary"]).strip()
+            currency_match = re.match(r"^([A-Za-z]{3})\b", salary_text)
+            if currency_match and not values.get("salary_currency"):
+                values["salary_currency"] = currency_match.group(1).upper()
+
+            amounts = [
+                float(value.replace(",", ""))
+                for value in re.findall(r"\d+(?:,\d{3})*(?:\.\d+)?", salary_text)
+            ]
+            if amounts:
+                values["salary_min"] = amounts[0]
+                if len(amounts) > 1:
+                    values["salary_max"] = amounts[1]
+        return values
 
 class JobUpdate(BaseModel):
     title: Optional[str] = None

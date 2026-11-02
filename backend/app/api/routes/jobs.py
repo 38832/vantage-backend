@@ -8,16 +8,52 @@ from sqlalchemy.orm import selectinload
 from app.api.deps import get_db
 from app.models.job import Job, JobCategory, JobStatus
 from app.schemas.response import ApiResponse, MetaData
-from app.schemas.job import JobCategoryOut, JobListItemOut, JobDetailOut
+from app.schemas.job import JobCategoryOut, JobCreate, JobListItemOut, JobDetailOut
 from app.core.logger import log_query_details
 
 router = APIRouter()
+
+DEFAULT_CATEGORIES = [
+    ("construction", "Construction & Engineering"),
+    ("technical", "Technical & Skilled"),
+    ("office", "Office & Admin"),
+    ("hospitality", "Hotel & Hospitality"),
+    ("driver", "Driver & Transport"),
+    ("industrial", "Industrial & Factory"),
+    ("healthcare", "Healthcare & Nursing"),
+    ("housekeeping", "Housekeeping & Cleaning"),
+]
+
+async def ensure_default_categories(db: AsyncSession):
+    result = await db.execute(select(JobCategory.slug))
+    existing_slugs = set(result.scalars().all())
+    for slug, name in DEFAULT_CATEGORIES:
+        if slug not in existing_slugs:
+            db.add(JobCategory(slug=slug, name=name))
+    await db.commit()
+
+@router.post("/jobs", response_model=ApiResponse[JobDetailOut])
+async def create_job(payload: JobCreate, db: AsyncSession = Depends(get_db)):
+    category = await db.get(JobCategory, payload.category_id)
+    if not category or not category.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Job category does not exist or is inactive",
+        )
+
+    job = Job(**payload.model_dump(exclude={"salary"}), status=JobStatus.published)
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+
+    return ApiResponse.ok(job)
 
 @router.get("/categories", response_model=ApiResponse[List[JobCategoryOut]])
 async def get_categories(db: AsyncSession = Depends(get_db)):
     """
     Get all active job categories and sectors
     """
+    await ensure_default_categories(db)
     query = select(JobCategory).where(JobCategory.is_active == True).order_by(JobCategory.name)
     result = await db.execute(query)
     categories = result.scalars().all()
