@@ -35,6 +35,23 @@ async def client(db_session):
 
     fastapi_app.dependency_overrides[get_db] = override_db
     transport = ASGITransport(app=fastapi_app)
+    async with AsyncClient(
+        transport=transport,
+        base_url="http://test",
+        headers={"Authorization": "Bearer test-admin-token"}
+    ) as ac:
+        yield ac
+    fastapi_app.dependency_overrides.clear()
+
+
+@pytest_asyncio.fixture
+async def unauthenticated_client(db_session):
+    async def override_db():
+        yield db_session
+
+    fastapi_app.dependency_overrides[get_db] = override_db
+    transport = ASGITransport(app=fastapi_app)
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
     fastapi_app.dependency_overrides.clear()
+

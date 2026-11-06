@@ -32,7 +32,7 @@ import { AdminDashboardView } from './AdminDashboardView';
 interface Endpoint {
   method: 'GET' | 'POST' | 'PATCH' | 'DELETE';
   path: string;
-  category: 'Jobs' | 'Applications' | 'Inquiries' | 'Admin ATS' | 'Health';
+  category: 'Jobs' | 'Applications' | 'Inquiries' | 'Admin ATS' | 'Authentication' | 'Health';
   summary: string;
   description: string;
   queryParams?: string[];
@@ -307,11 +307,94 @@ const ENDPOINTS: Endpoint[] = [
     }
   },
   {
+    method: 'POST',
+    path: '/api/auth/demo-token',
+    category: 'Authentication',
+    summary: 'Generate Recruiter JWT Bearer Token',
+    description: 'Issues an instant signed HS256 JWT access token with role "recruiter" for testing protected Admin ATS endpoints and Swagger UI.',
+    requestBody: {
+      role: 'recruiter',
+      email: 'nouman@ugetjob.com',
+      name: 'Nouman Qureshi'
+    },
+    responseBody: {
+      success: true,
+      data: {
+        access_token: 'eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9...',
+        token_type: 'bearer',
+        expires_in: 604800,
+        role: 'recruiter',
+        user: {
+          id: 'recruiter-nouman-01',
+          email: 'nouman@ugetjob.com',
+          role: 'recruiter',
+          full_name: 'Nouman Qureshi',
+          auth_method: 'jwt'
+        }
+      }
+    }
+  },
+  {
+    method: 'POST',
+    path: '/api/auth/login',
+    category: 'Authentication',
+    summary: 'Recruiter & Admin Login',
+    description: 'Authenticate with recruiter credentials to receive a signed JWT access token for session authorization.',
+    requestBody: {
+      email: 'recruiter@ugetjob.com',
+      password: '••••••••',
+      role: 'recruiter'
+    },
+    responseBody: {
+      success: true,
+      data: {
+        access_token: 'eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9...',
+        token_type: 'bearer',
+        expires_in: 604800,
+        role: 'recruiter'
+      }
+    }
+  },
+  {
+    method: 'GET',
+    path: '/api/auth/verify',
+    category: 'Authentication',
+    summary: 'Verify Active JWT Token',
+    description: 'Validates signature, expiration, and decoded role from the incoming "Authorization: Bearer <token>" header.',
+    responseBody: {
+      success: true,
+      data: {
+        id: 'recruiter-nouman-01',
+        email: 'nouman@ugetjob.com',
+        role: 'recruiter',
+        full_name: 'Nouman Qureshi',
+        auth_method: 'jwt'
+      }
+    }
+  },
+  {
+    method: 'GET',
+    path: '/api/admin/me',
+    category: 'Admin ATS',
+    summary: 'Current Recruiter Profile (Protected)',
+    description: '[RBAC Protected] Returns authenticated recruiter ID, email, verified role, and auth provider. Enforced via Depends(get_current_admin).',
+    responseBody: {
+      success: true,
+      data: {
+        id: 'recruiter-nouman-01',
+        email: 'nouman@ugetjob.com',
+        role: 'recruiter',
+        full_name: 'Nouman Qureshi',
+        auth_method: 'jwt'
+      }
+    }
+  },
+  {
     method: 'GET',
     path: '/api/admin/ats/applications',
     category: 'Admin ATS',
     summary: 'List ATS Candidate Applications',
-    description: 'Paginated admin view of candidate profiles with status filter, assigned recruiter, and keyword search.',
+    description: '[RBAC Protected] Paginated recruiter view of candidate applications. Requires "Authorization: Bearer <token>" with role: recruiter or admin.',
     queryParams: ['status', 'recruiter_assigned', 'search', 'page', 'limit'],
     responseBody: {
       success: true,
@@ -449,7 +532,7 @@ export default function App() {
     window.location.hash = tab;
   };
 
-  const categories = ['all', 'Jobs', 'Applications', 'Inquiries', 'Admin ATS', 'Health'];
+  const categories = ['all', 'Admin ATS', 'Authentication', 'Jobs', 'Applications', 'Inquiries', 'Health'];
 
   const filteredEndpoints = ENDPOINTS.filter(ep => {
     if (selectedCategory !== 'all' && ep.category !== selectedCategory) return false;
@@ -462,6 +545,9 @@ export default function App() {
 
   const getCurlSnippet = (ep: Endpoint) => {
     let curl = `curl -X ${ep.method} "http://localhost:8000${ep.path}" \\\n  -H "Accept: application/json"`;
+    if (ep.category === 'Admin ATS') {
+      curl += ` \\\n  -H "Authorization: Bearer <recruiter_jwt_token>"`;
+    }
     if (ep.requestBody) {
       curl += ` \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(ep.requestBody, null, 2)}'`;
     }
@@ -469,9 +555,11 @@ export default function App() {
   };
 
   const getFetchSnippet = (ep: Endpoint) => {
-    const options: any = { method: ep.method, headers: { 'Content-Type': 'application/json' } };
-    if (ep.requestBody) options.body = ep.requestBody;
-    return `// Call from your frontend application\nconst response = await fetch("http://localhost:8000${ep.path}", {\n  method: "${ep.method}",\n  headers: { "Content-Type": "application/json" },\n${ep.requestBody ? `  body: JSON.stringify(${JSON.stringify(ep.requestBody, null, 4)})\n` : ''}});\nconst result = await response.json();\nconsole.log(result);`;
+    const headers: any = { 'Content-Type': 'application/json' };
+    if (ep.category === 'Admin ATS') {
+      headers['Authorization'] = 'Bearer <recruiter_jwt_token>';
+    }
+    return `// Call from your frontend application\nconst response = await fetch("http://localhost:8000${ep.path}", {\n  method: "${ep.method}",\n  headers: ${JSON.stringify(headers, null, 4)},\n${ep.requestBody ? `  body: JSON.stringify(${JSON.stringify(ep.requestBody, null, 4)})\n` : ''}});\nconst result = await response.json();\nconsole.log(result);`;
   };
 
   const handleCopy = (text: string) => {

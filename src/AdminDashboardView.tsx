@@ -29,6 +29,8 @@ import {
   MapPin,
   Award,
   ShieldCheck,
+  Lock,
+  Key,
   AlertCircle
 } from 'lucide-react';
 
@@ -315,7 +317,9 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
   const [newNoteText, setNewNoteText] = useState('');
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
-  // Live Backend Connection States
+  // Live Backend Connection States & Authentication
+  const [authToken, setAuthToken] = useState<string>('ugetjob-admin-dev-key-2026');
+  const [authRole] = useState<string>('recruiter');
   const [isLoadingLive, setIsLoadingLive] = useState(false);
   const [liveConnected, setLiveConnected] = useState<boolean | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
@@ -326,12 +330,15 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
   const backendApiAtsLink = `http://localhost:8000/api/admin/ats/applications`;
   const swaggerDocsLink = `http://localhost:8000/docs`;
 
-  // Fetch live applications from local FastAPI backend
+  // Fetch live applications from local FastAPI backend with Bearer Token Auth
   const fetchLiveApplications = async () => {
     setIsLoadingLive(true);
     try {
       const response = await fetch('http://localhost:8000/api/admin/ats/applications', {
-        headers: { Accept: 'application/json' }
+        headers: {
+          'Accept': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        }
       });
       if (response.ok) {
         const json = await response.json();
@@ -379,7 +386,10 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
     try {
       await fetch(`http://localhost:8000/api/admin/ats/applications/${appId}`, {
         method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
         body: JSON.stringify({ application_status: newStatus })
       });
     } catch {
@@ -410,7 +420,10 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
     try {
       await fetch(`http://localhost:8000/api/admin/ats/applications/${selectedApp.id}/notes`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
         body: JSON.stringify({
           author_name: 'Recruiter Admin',
           note: note
@@ -521,21 +534,39 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
           </div>
         </div>
 
-        {/* Sync Status Banner */}
-        <div className="mt-4 flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 bg-slate-950/70 border border-slate-800 rounded-xl text-xs">
-          <div className="flex items-center space-x-2">
-            <span className={`w-2.5 h-2.5 rounded-full ${liveConnected ? 'bg-emerald-400 shadow-md shadow-emerald-400/50' : 'bg-amber-400'}`} />
-            <span className="text-slate-300 font-medium">
-              {liveConnected ? (
-                <>Connected to FastAPI (<code className="text-cyan-400">http://localhost:8000/api/admin/ats/applications</code>)</>
-              ) : (
-                <>Backend Preview Mode (Run <code className="text-amber-400">uvicorn app.main:app --port 8000 --reload</code> for live data)</>
-              )}
-            </span>
+        {/* Sync Status & RBAC Security Banner */}
+        <div className="mt-4 flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 bg-slate-950/70 border border-slate-800 rounded-xl text-xs">
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center space-x-2">
+              <span className={`w-2.5 h-2.5 rounded-full ${liveConnected ? 'bg-emerald-400 shadow-md shadow-emerald-400/50' : 'bg-amber-400'}`} />
+              <span className="text-slate-300 font-medium">
+                {liveConnected ? (
+                  <>Connected to FastAPI (<code className="text-cyan-400">http://localhost:8000/api/admin/ats/applications</code>)</>
+                ) : (
+                  <>Backend Preview Mode (Run <code className="text-amber-400">uvicorn app.main:app --port 8000 --reload</code> for live data)</>
+                )}
+              </span>
+            </div>
+
+            <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-mono">
+              <Lock className="w-3 h-3 text-emerald-400" />
+              <span>RBAC Protected: Bearer Token ({authRole.toUpperCase()})</span>
+            </div>
           </div>
-          {lastSyncTime && (
-            <span className="text-[11px] text-slate-500 font-mono">Last Synced: {lastSyncTime}</span>
-          )}
+
+          <div className="flex items-center space-x-3 text-[11px] text-slate-400 font-mono">
+            {lastSyncTime && (
+              <span>Last Synced: {lastSyncTime}</span>
+            )}
+            <button
+              onClick={() => handleCopyLink(authToken, 'auth_token')}
+              className="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 transition"
+              title="Copy active recruiter Bearer token for CLI/Swagger"
+            >
+              <Key className="w-3 h-3 text-amber-400" />
+              <span>{copiedLink === 'auth_token' ? 'Copied Token' : 'Copy Recruiter Token'}</span>
+            </button>
+          </div>
         </div>
 
         {/* Link Cards Grid */}

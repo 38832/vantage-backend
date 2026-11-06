@@ -529,3 +529,78 @@ async def test_dynamic_logging_status_and_toggle(client):
     toggle_on = await client.post("/api/admin/logging/toggle", json={"enabled": True})
     assert toggle_on.status_code == 200
     assert toggle_on.json()["detailed_logs_enabled"] is True
+
+
+@pytest.mark.asyncio
+async def test_admin_route_unauthenticated_returns_401(unauthenticated_client):
+    response = await unauthenticated_client.get("/api/admin/ats/applications")
+    assert response.status_code == 401
+    assert "Authorization" in response.json()["detail"] or "Authentication required" in response.json()["detail"]
+
+
+@pytest.mark.asyncio
+async def test_admin_route_invalid_token_returns_401(unauthenticated_client):
+    response = await unauthenticated_client.get(
+        "/api/admin/ats/applications",
+        headers={"Authorization": "Bearer invalid.jwt.token"}
+    )
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
+async def test_admin_route_non_recruiter_role_returns_403(unauthenticated_client):
+    from app.core.auth import create_access_token
+    candidate_token = create_access_token({
+        "sub": "candidate-99",
+        "email": "applicant@example.com",
+        "role": "candidate"
+    })
+    response = await unauthenticated_client.get(
+        "/api/admin/ats/applications",
+        headers={"Authorization": f"Bearer {candidate_token}"}
+    )
+    assert response.status_code == 403
+    assert "role" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_admin_route_with_recruiter_jwt_succeeds(unauthenticated_client, db_session):
+    from app.core.auth import create_access_token
+    recruiter_token = create_access_token({
+        "sub": "recruiter-nouman",
+        "email": "nouman@ugetjob.com",
+        "role": "recruiter",
+        "name": "Nouman Qureshi"
+    })
+    response = await unauthenticated_client.get(
+        "/api/admin/ats/applications",
+        headers={"Authorization": f"Bearer {recruiter_token}"}
+    )
+    assert response.status_code == 200
+    assert response.json()["success"] is True
+
+    # Test /api/admin/me
+    me_res = await unauthenticated_client.get(
+        "/api/admin/me",
+        headers={"Authorization": f"Bearer {recruiter_token}"}
+    )
+    assert me_res.status_code == 200
+    assert me_res.json()["data"]["role"] == "recruiter"
+
+
+@pytest.mark.asyncio
+async def test_auth_login_and_demo_endpoints(unauthenticated_client):
+    # Test demo token generation
+    demo_res = await unauthenticated_client.post("/api/auth/demo-token", json={"role": "recruiter"})
+    assert demo_res.status_code == 200
+    token = demo_res.json()["data"]["access_token"]
+    assert token
+
+    # Test verification
+    verify_res = await unauthenticated_client.get(
+        "/api/auth/verify",
+        headers={"Authorization": f"Bearer {token}"}
+    )
+    assert verify_res.status_code == 200
+    assert verify_res.json()["data"]["role"] == "recruiter"
+

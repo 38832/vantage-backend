@@ -5,7 +5,9 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_, update, delete
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_db
+from pydantic import BaseModel
+
+from app.api.deps import get_db, get_current_admin, AdminUser
 from app.models.application import Application, ApplicationStatus
 from app.models.candidate import Candidate
 from app.models.job import Job, JobStatus
@@ -15,9 +17,20 @@ from app.schemas.application import (
     ApplicationOut, ApplicationUpdate, ATSNoteCreate, ATSNoteOut, ATSDashboardStats
 )
 from app.schemas.job import JobUpdate, JobDetailOut
-from app.core.logger import log_query_details, log_mutation_details
+from app.core.logger import (
+    log_query_details,
+    log_mutation_details,
+    is_detailed_logging_enabled,
+    set_detailed_logging,
+)
+from app.core.config import settings
 
 router = APIRouter()
+
+
+class AdminLogTogglePayload(BaseModel):
+    enabled: bool
+
 
 @router.get("/dashboard", response_model=ApiResponse[ATSDashboardStats])
 async def get_ats_dashboard_stats(db: AsyncSession = Depends(get_db)):
@@ -389,3 +402,39 @@ async def delete_or_archive_job(
         "deleted": True,
         "mode": "hard_delete" if hard_delete else "closed"
     })
+
+
+@router.get("/me", response_model=ApiResponse[AdminUser])
+async def get_admin_profile(current_admin: AdminUser = Depends(get_current_admin)):
+    """
+    Get profile, assigned role, and authentication provider for current admin/recruiter.
+    """
+    return ApiResponse.ok(current_admin)
+
+
+@router.get("/logging")
+async def get_logging_status():
+    """
+    Check current detailed terminal logging level and configuration (Protected route).
+    """
+    enabled = is_detailed_logging_enabled()
+    return {
+        "success": True,
+        "detailed_logs_enabled": enabled,
+        "configured_default": settings.enable_detailed_logs,
+        "message": "Detailed terminal console logging is ON" if enabled else "Detailed terminal console logging is OFF"
+    }
+
+
+@router.post("/logging/toggle")
+async def toggle_logging(payload: AdminLogTogglePayload):
+    """
+    Dynamically turn detailed terminal logging ON or OFF at runtime (Protected route).
+    """
+    new_state = set_detailed_logging(payload.enabled)
+    return {
+        "success": True,
+        "detailed_logs_enabled": new_state,
+        "message": f"Detailed terminal logging set to {new_state}"
+    }
+

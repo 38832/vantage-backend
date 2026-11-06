@@ -1,18 +1,19 @@
 import json
 import time
 from typing import Optional
-from fastapi import FastAPI, Request, Response, Body
+from fastapi import FastAPI, Request, Response, Body, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.auth import get_current_admin
 from app.core.logger import (
     log_http_request,
     log_http_response,
     is_detailed_logging_enabled,
     set_detailed_logging,
 )
-from app.api.routes import health, jobs, applications, inquiries, admin
+from app.api.routes import health, jobs, applications, inquiries, admin, auth
 
 app = FastAPI(
     title="UGETJOB — Global Workforce Solutions API",
@@ -108,40 +109,17 @@ async def detailed_terminal_logging_middleware(request: Request, call_next):
 
 # Register route blueprints
 app.include_router(health.router, prefix="/api", tags=["Health"])
+app.include_router(auth.router, prefix="/api/auth", tags=["Authentication & Tokens"])
 app.include_router(jobs.router, prefix="/api", tags=["Jobs & Categories"])
 app.include_router(applications.router, prefix="/api", tags=["Applications & Candidates"])
 app.include_router(inquiries.router, prefix="/api", tags=["Inquiries & Services"])
-app.include_router(admin.router, prefix="/api/admin", tags=["Admin & ATS"])
+app.include_router(
+    admin.router,
+    prefix="/api/admin",
+    tags=["Admin & ATS"],
+    dependencies=[Depends(get_current_admin)]
+)
 
-
-class LogTogglePayload(BaseModel):
-    enabled: bool
-
-
-@app.get("/api/admin/logging", tags=["Admin & ATS"])
-async def get_logging_status():
-    """
-    Check current dynamic logging level and settings configuration.
-    """
-    return {
-        "success": True,
-        "detailed_logs_enabled": is_detailed_logging_enabled(),
-        "configured_default": settings.enable_detailed_logs,
-        "message": "Detailed terminal console logging is ON" if is_detailed_logging_enabled() else "Detailed terminal console logging is OFF"
-    }
-
-
-@app.post("/api/admin/logging/toggle", tags=["Admin & ATS"])
-async def toggle_logging(payload: LogTogglePayload):
-    """
-    Dynamically turn detailed terminal console logging ON or OFF at runtime.
-    """
-    new_state = set_detailed_logging(payload.enabled)
-    return {
-        "success": True,
-        "detailed_logs_enabled": new_state,
-        "message": f"Detailed terminal logging set to {new_state}"
-    }
 
 
 @app.get("/")

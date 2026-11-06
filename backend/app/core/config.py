@@ -18,9 +18,15 @@ class Settings(BaseSettings):
     company_documents_bucket: str = "company-documents"
     job_attachments_bucket: str = "job-attachments"
     
-    # CORS
+    # CORS & Security Secrets
     allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000,https://ugetjob.com,https://www.ugetjob.com"
     secret_key: str = "secret-key-change-me"
+
+    # JWT & RBAC Authentication
+    jwt_secret: str = "ugetjob-jwt-secret-key-recruiter-ats-2026"
+    jwt_algorithm: str = "HS256"
+    jwt_access_token_expire_minutes: int = 60 * 24 * 7  # 7 days default
+    admin_api_key: str = "ugetjob-admin-dev-key-2026"
 
     # Detailed Console Logging Toggle
     # Set to True to print full request/response bodies, sorting criteria, and mutation diffs in terminal
