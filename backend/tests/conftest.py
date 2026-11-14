@@ -7,6 +7,7 @@ from httpx import ASGITransport, AsyncClient
 from app.db.base import Base
 from app.main import app as fastapi_app
 from app.api.deps import get_db
+from app.core.auth import create_access_token
 import app.models  # Register all models
 
 
@@ -34,12 +35,18 @@ async def client(db_session):
         yield db_session
 
     fastapi_app.dependency_overrides[get_db] = override_db
+    access_token = create_access_token({
+        "sub": "test-admin",
+        "email": "admin@example.com",
+        "role": "admin",
+    })
     transport = ASGITransport(app=fastapi_app)
     async with AsyncClient(
         transport=transport,
         base_url="http://test",
         headers={"Authorization": "Bearer test-admin-token"}
     ) as ac:
+        ac.headers["Authorization"] = f"Bearer {access_token}"
         yield ac
     fastapi_app.dependency_overrides.clear()
 
@@ -54,4 +61,3 @@ async def unauthenticated_client(db_session):
     async with AsyncClient(transport=transport, base_url="http://test") as ac:
         yield ac
     fastapi_app.dependency_overrides.clear()
-

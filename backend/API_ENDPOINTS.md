@@ -9,6 +9,15 @@ All endpoints below are implemented. `ApiResponse` is represented as `{"success"
 |---|---|---|---|
 | GET | `/api/health` | None | `{"status":"ok","service":"...","environment":"...","database":"postgresql-asyncpg","storage":"supabase"}` |
 
+## Authentication
+
+| Method | Endpoint | Authentication | Purpose |
+|---|---|---|---|
+| POST | `/api/auth/login` | Supabase email/password; returns a short-lived Bearer JWT for authorized staff |
+| GET | `/api/auth/verify` | Bearer staff JWT | Verify token and return the staff identity |
+
+Staff roles are assigned by an administrator in Supabase `app_metadata`; user metadata and request-supplied roles do not grant access.
+
 ## Public jobs and categories
 
 | Method | Endpoint | Authentication | Purpose |
@@ -186,18 +195,18 @@ Both return HTTP 200 and the standard success envelope containing an ID, status 
 
 ## Admin and ATS
 
-**No authentication is implemented or enforced on these routes. Treat them as unprotected until authentication is added.**
+All routes require an `admin` or `recruiter` Bearer JWT issued by `/api/auth/login`.
 
 | Method | Endpoint | Authentication | Purpose |
 |---|---|---|---|
-| GET | `/api/admin/dashboard` | None in current implementation | ATS KPI counts |
-| GET | `/api/admin/ats/applications` | None in current implementation | Search, filter, and paginate applications |
-| PATCH | `/api/admin/ats/applications/{application_id}` | None in current implementation | Update ATS stages, recruiter, interview, statuses, and notes |
-| POST | `/api/admin/ats/applications/{application_id}/notes` | None in current implementation | Add internal note |
-| PATCH | `/api/admin/jobs/{job_id}` | None in current implementation | Update selected job fields |
-| DELETE | `/api/admin/jobs/{job_id}` | None in current implementation | Soft-close or hard-delete |
-| GET | `/api/admin/logging` | None in current implementation | Check dynamic terminal logging status |
-| POST | `/api/admin/logging/toggle` | None in current implementation | Dynamically switch detailed logging ON/OFF (`{"enabled": true/false}`) |
+| GET | `/api/admin/dashboard` | Bearer staff JWT | ATS KPI counts |
+| GET | `/api/admin/ats/applications` | Bearer staff JWT | Search, filter, and paginate applications |
+| PATCH | `/api/admin/ats/applications/{application_id}` | Bearer staff JWT | Update ATS stages, recruiter, interview, statuses, and notes |
+| POST | `/api/admin/ats/applications/{application_id}/notes` | Bearer staff JWT | Add internal note |
+| PATCH | `/api/admin/jobs/{job_id}` | Bearer staff JWT | Update selected job fields |
+| DELETE | `/api/admin/jobs/{job_id}` | Bearer staff JWT | Soft-close or hard-delete |
+| GET | `/api/admin/logging` | Bearer staff JWT | Check dynamic terminal logging status |
+| POST | `/api/admin/logging/toggle` | Bearer staff JWT | Dynamically switch detailed logging ON/OFF (`{"enabled": true/false}`) |
 
 ATS list query parameters: `status`, `recruiter_assigned`, `search`, `page` (default 1, minimum 1), `limit` (default 20, 1-100).
 

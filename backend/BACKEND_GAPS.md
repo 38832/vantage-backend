@@ -3,20 +3,20 @@
 ## Verification status
 
 - Source inspection and OpenAPI generation: **completed**.
-- Automated backend tests: **30 passed**.
+- Automated backend tests: **42 passed**.
 - Tests used an in-memory SQLite database and dependency overrides, not the real Supabase PostgreSQL deployment.
 - Supabase credentials and live Storage behavior: **not verified**.
 - Live production database connectivity and RLS: **not verified**.
 - Generated paths were inspected from the FastAPI app without starting a live server.
 
-## Critical implemented security gaps
+## Security findings and status
 
-1. **Admin routes have no authentication or role authorization.**
-   Every dashboard, ATS, job-update, and job-delete route is callable anonymously. `AdminUser` exists in models and schema SQL, but there is no login, token, dependency, or role check.
+1. **Admin route authentication and role checks: implemented.**
+   Supabase Auth validates staff passwords; only the Supabase `app_metadata.role` values `admin` and `recruiter` receive short-lived signed JWTs. Every `/api/admin/*` route requires a valid Bearer token. The insecure demo-token and static API-key bypasses were removed.
 2. **Candidate and document read/upload routes have no authentication.**
    Candidate resumes can be listed by guessed UUID. Supporting documents can be uploaded by application UUID.
-3. **Secrets are not part of authentication.**
-   `SECRET_KEY` is configured but unused by source searches.
+3. **JWT signing secret configuration must be retained.**
+   Set a strong, stable `JWT_SECRET` in every deployment; the Render blueprint provisions one.
 4. **Resume-storage policy may conflict with privacy.**
    SQL sets a public insert policy for `candidate-resumes` while authenticated reads are allowed. Backend uploads use service-role access and may create signed URLs. Storage and table-level access must be audited against actual Supabase deployment.
 5. **No table-level RLS policies appear in the schema SQL.**
@@ -83,7 +83,7 @@ The following models/tables have no direct API endpoint:
 - Candidate JSON schema exposes `current_role`, but candidate output models are not used by any route.
 - `EmployerInquiryOut` and `ServiceRequestOut` schemas exist, but inquiries routes return ad hoc dictionaries without response models.
 - Supporting document response type is ad hoc and not documented by a Pydantic model.
-- `AdminUser` has password hash storage but no authentication implementation.
+- `admin_users` is a legacy password-hash table; staff authentication now uses Supabase Auth.
 - Schema SQL creates storage buckets but the API cannot provision missing buckets itself; it catches failures and falls back.
 - Schema has `company_documents` bucket but `.env.example` has `company-document`; verify actual deployment bucket name.
 - No API endpoint exists for `company-documents` or `job-attachments`, despite configured bucket settings and storage helper methods.
@@ -114,13 +114,12 @@ The following models/tables have no direct API endpoint:
 
 ## Recommended implementation priorities
 
-1. Add login/token dependencies to admin routes and optionally recruiter- and candidate-specific routes.
-2. Add authorization checks based on verified identity and roles.
-3. Add server-side file size/MIME/filename validation and configurable duration for signed URLs.
-4. Stop returning signed URLs or storage paths for unauthenticated resume/document endpoints.
-5. Add list/get/refresh/download/revoke endpoints for resumes and application documents.
-6. Add candidates and inquiries read APIs or scoped admin-only read APIs.
-7. Make category creation a separate admin operation and support job creation.
-8. Fix the multipart candidate duplicate behavior and invalid-job-ID behavior.
-9. Add robust storage error responses rather than public fallback URLs on every provider failure.
-10. Implement table RLS independently and test direct Supabase client access, not just backend service-role access.
+1. Authentication and role checks on `/api/admin/*` are implemented; candidate-specific authorization remains open.
+2. Add server-side file size/MIME/filename validation and configurable duration for signed URLs.
+3. Stop returning signed URLs or storage paths for unauthenticated resume/document endpoints.
+4. Add list/get/refresh/download/revoke endpoints for resumes and application documents.
+5. Add candidates and inquiries read APIs or scoped admin-only read APIs.
+6. Make category creation a separate admin operation and support job creation.
+7. Fix the multipart candidate duplicate behavior and invalid-job-ID behavior.
+8. Add robust storage error responses rather than public fallback URLs on every provider failure.
+9. Implement table RLS independently and test direct Supabase client access, not just backend service-role access.

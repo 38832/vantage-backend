@@ -92,8 +92,15 @@ Update `DATABASE_URL` with your Supabase async connection string:
 ```env
 DATABASE_URL="postgresql+asyncpg://postgres:[PASSWORD]@db.[REF].supabase.co:5432/postgres"
 SUPABASE_URL="https://[REF].supabase.co"
+SUPABASE_KEY="your-supabase-anon-or-publishable-key"
 SUPABASE_SERVICE_ROLE_KEY="your-service-role-key"
+JWT_SECRET="a-long-random-secret"
 ```
+
+Admin and recruiter sign-in uses Supabase Auth. Create staff users there and assign
+their `role` (`admin` or `recruiter`) in **app metadata**; public user metadata
+does not grant staff access. The API issues a one-hour signed access token only
+after Supabase verifies the password. Do not use client-side demo credentials.
 
 ### 5. Run the Server
 ```bash
@@ -126,6 +133,7 @@ The repository includes a Render Blueprint at `../render.yaml`. It deploys:
 | `SUPABASE_URL` | Project URL |
 | `SUPABASE_KEY` | Anon/publishable key |
 | `SUPABASE_SERVICE_ROLE_KEY` | Service-role key; keep this secret |
+| `JWT_SECRET` | Long random signing secret; Render generates one from the blueprint |
 | `ALLOWED_ORIGINS` | Comma-separated frontend URLs |
 
 Render supplies `PORT` automatically. The Dockerfile uses it when starting Uvicorn.
@@ -149,6 +157,7 @@ Required API variables:
 - `SUPABASE_URL`: Supabase project URL.
 - `SUPABASE_KEY`: Supabase anon/publishable key.
 - `SUPABASE_SERVICE_ROLE_KEY`: Supabase service-role key. Keep it secret.
+- `JWT_SECRET`: Long random signing secret. Keep it secret and stable across deployments.
 - `ALLOWED_ORIGINS`: Comma-separated frontend URLs, including the final Render frontend URL.
 
 Render supplies `PORT` automatically. The Dockerfile starts Uvicorn on that port.

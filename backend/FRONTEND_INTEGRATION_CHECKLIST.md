@@ -62,8 +62,9 @@
 ## 7. Build recruiter/admin screens
 
 - [ ] Treat every `/api/admin/*` route as sensitive.
-- [ ] Add backend authentication before exposing these screens in a real deployment.
-- [ ] Add Authorization handling only after the backend implements it; no token scheme exists today.
+- [x] Authenticate staff with `POST /api/auth/login`; roles come from Supabase `app_metadata`.
+- [x] Send the returned Bearer token with every `/api/admin/*` request.
+- [x] Keep the token tab-scoped; clear the session when the backend returns 401.
 - [ ] Load KPIs from `/api/admin/dashboard`.
 - [ ] Use status, recruiter, search, page, and limit filters on the ATS list.
 - [ ] Update applications with documented patch fields.
@@ -82,9 +83,10 @@
 
 ## 9. Security before production
 
-- [ ] Do not ship the unprotected admin routes to public users until authentication and authorization are added.
+- [x] Require authorized `admin` or `recruiter` authentication on every `/api/admin/*` route.
+- [ ] Provision staff accounts and assign roles in Supabase Auth `app_metadata`; do not enable public registration.
 - [ ] Do not rely on Supabase browser public policies for candidate documents.
 - [ ] Review RLS independently from service-role backend access.
 - [ ] Restrict production CORS origins; avoid wildcard origins.
-- [ ] Set a strong backend `SECRET_KEY` even though auth does not currently use it.
-- [ ] Use HTTPS for frontend, API, signed URLs, and cookies/tokens in any future authentication design.
+- [ ] Configure a strong, stable `JWT_SECRET` in deployment.
+- [ ] Use HTTPS for frontend, API, and signed URLs.

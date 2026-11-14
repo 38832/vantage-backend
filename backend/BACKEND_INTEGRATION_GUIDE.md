@@ -20,6 +20,7 @@ The entry point is [app/main.py](app/main.py). It creates one FastAPI applicatio
 | Router module | Prefix | Tags |
 |---|---|---|
 | health | `/api` | Health |
+| auth | `/api/auth` | Authentication & Tokens |
 | jobs | `/api` | Jobs & Categories |
 | applications | `/api` | Applications & Candidates |
 | inquiries | `/api` | Inquiries & Services |
@@ -48,6 +49,8 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 |---|---|---|---|---|---|
 | Root status | GET | `/` | None | JSON object | Basic service status |
 | Health | GET | `/api/health` | None | Health JSON | Configuration and service status |
+| Staff login | POST | `/api/auth/login` | Supabase email/password | `ApiResponse<TokenResponse>` | Authenticate staff and issue a short-lived JWT |
+| Verify staff token | GET | `/api/auth/verify` | Bearer staff JWT | `ApiResponse<AdminUser>` | Validate token and return staff identity |
 | List categories | GET | `/api/categories` | None | `ApiResponse<JobCategory[]>` | Active categories |
 | List jobs | GET | `/api/jobs` | None | Paginated `ApiResponse<JobListItem[]>` | Search/filter jobs |
 | Featured jobs | GET | `/api/jobs/featured` | None | `ApiResponse<JobListItem[]>` | Featured jobs |
@@ -59,12 +62,12 @@ uvicorn app.main:app --host 127.0.0.1 --port 8000 --reload
 | Supporting document | POST | `/api/applications/{application_id}/documents` | None | Ad hoc success JSON | Upload passport/certificate/other file |
 | Employer inquiry | POST | `/api/inquiries/employer` | None | Ad hoc success JSON | Create manpower inquiry and employer |
 | Service request | POST | `/api/inquiries/service` | None | Ad hoc success JSON | Create service request |
-| ATS dashboard | GET | `/api/admin/dashboard` | **None implemented** | `ApiResponse<ATSDashboardStats>` | KPI counts |
-| ATS applications | GET | `/api/admin/ats/applications` | **None implemented** | Paginated `ApiResponse<Application[]>` | Recruiter application list |
-| Update application | PATCH | `/api/admin/ats/applications/{application_id}` | **None implemented** | Ad hoc success JSON | Pipeline update |
-| Add ATS note | POST | `/api/admin/ats/applications/{application_id}/notes` | **None implemented** | `ApiResponse<ATSNote>` | Internal note |
-| Update job | PATCH | `/api/admin/jobs/{job_id}` | **None implemented** | `ApiResponse<JobDetail>` | Update selected job fields |
-| Delete/archive job | DELETE | `/api/admin/jobs/{job_id}` | **None implemented** | Ad hoc success JSON | Soft close or hard delete |
+| ATS dashboard | GET | `/api/admin/dashboard` | Bearer staff JWT | `ApiResponse<ATSDashboardStats>` | KPI counts |
+| ATS applications | GET | `/api/admin/ats/applications` | Bearer staff JWT | Paginated `ApiResponse<Application[]>` | Recruiter application list |
+| Update application | PATCH | `/api/admin/ats/applications/{application_id}` | Bearer staff JWT | Ad hoc success JSON | Pipeline update |
+| Add ATS note | POST | `/api/admin/ats/applications/{application_id}/notes` | Bearer staff JWT | `ApiResponse<ATSNote>` | Internal note |
+| Update job | PATCH | `/api/admin/jobs/{job_id}` | Bearer staff JWT | `ApiResponse<JobDetail>` | Update selected job fields |
+| Delete/archive job | DELETE | `/api/admin/jobs/{job_id}` | Bearer staff JWT | Ad hoc success JSON | Soft close or hard delete |
 
 ## 4. Shared response format
 
@@ -253,7 +256,7 @@ Both endpoints require JSON for employer/service payloads, use no authentication
 
 ### Admin/ATS
 
-There is currently no token, cookie, login, or authorization mechanism. Frontend code must not rely on Authorization headers today. All `/api/admin/*` endpoints are public from the backend's perspective. If an HTTP 401 or 403 appears in a proxy, it is infrastructure-side, not implemented by FastAPI source.
+`POST /api/auth/login` verifies email/password through Supabase Auth and issues a short-lived signed JWT only when Supabase `app_metadata.role` is `admin` or `recruiter`. Every `/api/admin/*` route requires that JWT in the `Authorization: Bearer <token>` header. Request-supplied roles, public user metadata, default passwords, and the former demo-token endpoint do not grant access. Staff accounts must be provisioned in Supabase Auth.
 
 Dashboard returns total applications and status counts. Application update accepts only fields from `ApplicationUpdate`; job update accepts only fields from `JobUpdate`. Add ATS note requires `author_name` and `note`.
 
@@ -313,14 +316,15 @@ Do not use a returned public fallback URL for a private document; it may only wo
 
 ## 8. Authentication and authorization
 
-Implemented: none. `AdminUser` and stored password hash exist, but no endpoints or dependencies are implemented.
+Implemented: Supabase Auth password verification, `admin`/`recruiter` authorization from app metadata, one-hour signed JWTs, and an admin-router dependency. The legacy `admin_users` password-hash table is not used for sign-in.
 
 Frontend current behavior:
 
-- Do not send Authorization headers expecting backend handling.
+- Send the access token from tab-scoped `sessionStorage` on `/api/admin/*` calls; clear it when the API returns 401.
+- Do not store admin passwords or credentials in browser storage, or allow public staff registration.
 - Do not expose admin controls publicly in production.
 - Candidate resume APIs, inquiry submissions, and public jobs do not require a token.
-- A deployment token at reverse proxy/CDN level could add infrastructure auth, but it must be configured and documented outside application code.
+- Set a strong, stable `JWT_SECRET` in deployment configuration.
 
 ## 9. CORS
 

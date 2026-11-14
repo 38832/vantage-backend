@@ -589,18 +589,134 @@ async def test_admin_route_with_recruiter_jwt_succeeds(unauthenticated_client, d
 
 
 @pytest.mark.asyncio
-async def test_auth_login_and_demo_endpoints(unauthenticated_client):
-    # Test demo token generation
-    demo_res = await unauthenticated_client.post("/api/auth/demo-token", json={"role": "recruiter"})
-    assert demo_res.status_code == 200
-    token = demo_res.json()["data"]["access_token"]
-    assert token
+async def test_auth_login_issues_token_for_supabase_staff_account(
+    unauthenticated_client, monkeypatch
+):
+    from types import SimpleNamespace
+    from app.api.routes import auth as auth_routes
 
-    # Test verification
-    verify_res = await unauthenticated_client.get(
-        "/api/auth/verify",
-        headers={"Authorization": f"Bearer {token}"}
+    user = SimpleNamespace(
+        id="admin-123",
+        email="admin@example.com",
+        app_metadata={"role": "admin"},
+        user_metadata={"full_name": "Example Admin"},
     )
-    assert verify_res.status_code == 200
-    assert verify_res.json()["data"]["role"] == "recruiter"
+    auth_response = SimpleNamespace(
+        user=user,
+        session=SimpleNamespace(access_token="supabase-token"),
+    )
+    fake_client = SimpleNamespace(
+        auth=SimpleNamespace(
+            sign_in_with_password=lambda credentials: auth_response
+        )
+    )
+    monkeypatch.setattr(auth_routes, "create_client", lambda url, key: fake_client)
+    monkeypatch.setattr(auth_routes.settings, "supabase_url", "https://example.supabase.co")
+    monkeypatch.setattr(auth_routes.settings, "supabase_key", "valid-test-key")
 
+    response = await unauthenticated_client.post(
+        "/api/auth/login",
+        json={"email": "admin@example.com", "password": "valid-password"},
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["role"] == "admin"
+    assert data["user"]["id"] == "admin-123"
+    assert data["user"]["full_name"] == "Example Admin"
+
+    verify_response = await unauthenticated_client.get(
+        "/api/auth/verify",
+        headers={"Authorization": f"Bearer {data['access_token']}"},
+    )
+    assert verify_response.status_code == 200
+    assert verify_response.json()["data"]["role"] == "admin"
+
+    admin_response = await unauthenticated_client.get(
+        "/api/admin/me",
+        headers={"Authorization": f"Bearer {data['access_token']}"},
+    )
+    assert admin_response.status_code == 200
+
+
+@pytest.mark.asyncio
+async def test_auth_login_rejects_invalid_credentials(unauthenticated_client, monkeypatch):
+    from types import SimpleNamespace
+    from supabase import AuthInvalidCredentialsError
+    from app.api.routes import auth as auth_routes
+
+    def reject_credentials(credentials):
+        raise AuthInvalidCredentialsError("Invalid login credentials")
+
+    fake_client = SimpleNamespace(
+        auth=SimpleNamespace(sign_in_with_password=reject_credentials)
+    )
+    monkeypatch.setattr(auth_routes, "create_client", lambda url, key: fake_client)
+    monkeypatch.setattr(auth_routes.settings, "supabase_url", "https://example.supabase.co")
+    monkeypatch.setattr(auth_routes.settings, "supabase_key", "valid-test-key")
+
+    response = await unauthenticated_client.post(
+        "/api/auth/login",
+        json={"email": "admin@example.com", "password": "wrong-password"},
+    )
+    assert response.status_code == 401
+    assert response.json()["detail"] == "Invalid email or password."
+
+
+@pytest.mark.asyncio
+async def test_auth_login_does_not_trust_user_metadata_role(
+    unauthenticated_client, monkeypatch
+):
+    from types import SimpleNamespace
+    from app.api.routes import auth as auth_routes
+
+    user = SimpleNamespace(
+        id="user-123",
+        email="user@example.com",
+        app_metadata={},
+        user_metadata={"role": "admin"},
+    )
+    auth_response = SimpleNamespace(
+        user=user,
+        session=SimpleNamespace(access_token="supabase-token"),
+    )
+    fake_client = SimpleNamespace(
+        auth=SimpleNamespace(
+            sign_in_with_password=lambda credentials: auth_response
+        )
+    )
+    monkeypatch.setattr(auth_routes, "create_client", lambda url, key: fake_client)
+    monkeypatch.setattr(auth_routes.settings, "supabase_url", "https://example.supabase.co")
+    monkeypatch.setattr(auth_routes.settings, "supabase_key", "valid-test-key")
+
+    response = await unauthenticated_client.post(
+        "/api/auth/login",
+        json={
+            "email": "user@example.com",
+            "password": "valid-password",
+            "role": "admin",
+        },
+    )
+    assert response.status_code == 403
+
+
+@pytest.mark.asyncio
+async def test_auth_login_requires_supabase_configuration(unauthenticated_client, monkeypatch):
+    from app.api.routes import auth as auth_routes
+
+    monkeypatch.setattr(auth_routes.settings, "supabase_url", "")
+    monkeypatch.setattr(auth_routes.settings, "supabase_key", "")
+
+    response = await unauthenticated_client.post(
+        "/api/auth/login",
+        json={"email": "admin@example.com", "password": "valid-password"},
+    )
+    assert response.status_code == 503
+
+
+@pytest.mark.asyncio
+async def test_demo_token_endpoint_is_removed(unauthenticated_client):
+    response = await unauthenticated_client.post(
+        "/api/auth/demo-token",
+        json={"role": "admin"},
+    )
+    assert response.status_code == 404

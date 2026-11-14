@@ -30,7 +30,6 @@ import {
   Award,
   ShieldCheck,
   Lock,
-  Key,
   AlertCircle
 } from 'lucide-react';
 
@@ -317,22 +316,30 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
   const [newNoteText, setNewNoteText] = useState('');
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
-  // Live Backend Connection States & Authentication
-  const [authToken, setAuthToken] = useState<string>('ugetjob-admin-dev-key-2026');
-  const [authRole] = useState<string>('recruiter');
+  const [authEmail, setAuthEmail] = useState('');
+  const [authPassword, setAuthPassword] = useState('');
+  const [authToken, setAuthToken] = useState<string | null>(null);
+  const [authRole, setAuthRole] = useState<string | null>(null);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [liveError, setLiveError] = useState<string | null>(null);
+  const [isSigningIn, setIsSigningIn] = useState(false);
   const [isLoadingLive, setIsLoadingLive] = useState(false);
   const [liveConnected, setLiveConnected] = useState<boolean | null>(null);
   const [lastSyncTime, setLastSyncTime] = useState<string | null>(null);
 
+  const backendApiOrigin = 'http://localhost:8000';
   const origin = typeof window !== 'undefined' ? window.location.origin : 'http://localhost:3000';
   const adminUiLink = `${origin}/#admin`;
-  const backendApiDashboardLink = `http://localhost:8000/api/admin/dashboard`;
-  const backendApiAtsLink = `http://localhost:8000/api/admin/ats/applications`;
-  const swaggerDocsLink = `http://localhost:8000/docs`;
+  const backendApiDashboardLink = `${backendApiOrigin}/api/admin/dashboard`;
+  const backendApiAtsLink = `${backendApiOrigin}/api/admin/ats/applications`;
+  const swaggerDocsLink = `${backendApiOrigin}/docs`;
 
   // Fetch live applications from local FastAPI backend with Bearer Token Auth
   const fetchLiveApplications = async () => {
+    if (!authToken) return;
+
     setIsLoadingLive(true);
+    setLiveError(null);
     try {
       const response = await fetch('http://localhost:8000/api/admin/ats/applications', {
         headers: {
@@ -340,6 +347,10 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
           'Authorization': `Bearer ${authToken}`
         }
       });
+      if (response.status === 401) {
+        clearStaffSession('Your session expired. Sign in again.');
+        return;
+      }
       if (response.ok) {
         const json = await response.json();
         const records = json.data || (Array.isArray(json) ? json : null);
@@ -354,10 +365,11 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
           setLiveConnected(true);
         }
       } else {
+        setLiveError(`Unable to load applications (HTTP ${response.status}).`);
         setLiveConnected(false);
       }
-    } catch {
-      // Backend not running on localhost:8000
+    } catch (error) {
+      setLiveError(error instanceof Error ? error.message : 'Unable to load applications.');
       setLiveConnected(false);
     } finally {
       setIsLoadingLive(false);
@@ -365,8 +377,52 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
   };
 
   useEffect(() => {
-    fetchLiveApplications();
-  }, []);
+    if (authToken) fetchLiveApplications();
+  }, [authToken]);
+
+  const clearStaffSession = (message?: string) => {
+    setAuthToken(null);
+    setAuthRole(null);
+    setAuthPassword('');
+    setApplications(INITIAL_APPLICATIONS);
+    setSelectedApp(INITIAL_APPLICATIONS[0]);
+    setLiveConnected(false);
+    setLastSyncTime(null);
+    setAuthError(message || null);
+  };
+
+  const handleLogin = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    setAuthError(null);
+    setIsSigningIn(true);
+    try {
+      const response = await fetch(`${backendApiOrigin}/api/auth/login`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Accept': 'application/json' },
+        body: JSON.stringify({ email: authEmail, password: authPassword })
+      });
+      const result = await response.json();
+      if (!response.ok) {
+        throw new Error(result.detail || 'Staff sign-in failed.');
+      }
+      const { access_token: token, role } = result.data || {};
+      if (typeof token !== 'string' || typeof role !== 'string') {
+        throw new Error('The authentication service returned an invalid response.');
+      }
+      setAuthToken(token);
+      setAuthRole(role);
+      setAuthPassword('');
+    } catch (error) {
+      setAuthError(error instanceof Error ? error.message : 'Staff sign-in failed.');
+    } finally {
+      setIsSigningIn(false);
+    }
+  };
+
+  const handleLogout = () => {
+    clearStaffSession();
+    setLiveError(null);
+  };
 
   const handleCopyLink = (link: string, id: string) => {
     onCopy(link);
@@ -382,9 +438,10 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
       setSelectedApp(prev => (prev ? { ...prev, application_status: newStatus, status: newStatus } : null));
     }
 
-    // Attempt PATCH to backend if available
+    if (!authToken) return;
+
     try {
-      await fetch(`http://localhost:8000/api/admin/ats/applications/${appId}`, {
+      const response = await fetch(`http://localhost:8000/api/admin/ats/applications/${appId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
@@ -392,8 +449,13 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
         },
         body: JSON.stringify({ application_status: newStatus })
       });
-    } catch {
-      // Ignore network errors if backend is in offline mode
+      if (response.status === 401) {
+        clearStaffSession('Your session expired. Sign in again.');
+        return;
+      }
+      if (!response.ok) setLiveError(`Unable to update the application (HTTP ${response.status}).`);
+    } catch (error) {
+      setLiveError(error instanceof Error ? error.message : 'Unable to update the application.');
     }
   };
 
@@ -416,9 +478,10 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
     setSelectedApp(prev => (prev ? { ...prev, interview_notes: note, notes_count: (prev.notes_count || 0) + 1 } : null));
     setNewNoteText('');
 
-    // Attempt POST to backend
+    if (!authToken) return;
+
     try {
-      await fetch(`http://localhost:8000/api/admin/ats/applications/${selectedApp.id}/notes`, {
+      const response = await fetch(`http://localhost:8000/api/admin/ats/applications/${selectedApp.id}/notes`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -429,8 +492,13 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
           note: note
         })
       });
-    } catch {
-      // Offline fallback
+      if (response.status === 401) {
+        clearStaffSession('Your session expired. Sign in again.');
+        return;
+      }
+      if (!response.ok) setLiveError(`Unable to save the note (HTTP ${response.status}).`);
+    } catch (error) {
+      setLiveError(error instanceof Error ? error.message : 'Unable to save the note.');
     }
   };
 
@@ -516,7 +584,7 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
           <div className="flex flex-wrap items-center gap-2">
             <button
               onClick={fetchLiveApplications}
-              disabled={isLoadingLive}
+              disabled={!authToken || isLoadingLive}
               className="inline-flex items-center space-x-2 bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/40 font-bold px-3.5 py-2 rounded-xl text-xs transition"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${isLoadingLive ? 'animate-spin' : ''}`} />
@@ -534,6 +602,41 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
           </div>
         </div>
 
+        {!authToken && (
+          <form onSubmit={handleLogin} className="mt-4 flex flex-wrap items-end gap-3 rounded-xl border border-slate-800 bg-slate-950/70 p-4">
+            <label className="flex min-w-48 flex-1 flex-col gap-1 text-[11px] text-slate-400">
+              Staff email
+              <input
+                type="email"
+                autoComplete="username"
+                required
+                value={authEmail}
+                onChange={event => setAuthEmail(event.target.value)}
+                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-cyan-500"
+              />
+            </label>
+            <label className="flex min-w-48 flex-1 flex-col gap-1 text-[11px] text-slate-400">
+              Password
+              <input
+                type="password"
+                autoComplete="current-password"
+                required
+                value={authPassword}
+                onChange={event => setAuthPassword(event.target.value)}
+                className="rounded-lg border border-slate-700 bg-slate-900 px-3 py-2 text-sm text-white outline-none focus:border-cyan-500"
+              />
+            </label>
+            <button
+              type="submit"
+              disabled={isSigningIn}
+              className="rounded-lg bg-cyan-600 px-4 py-2 text-sm font-bold text-white transition hover:bg-cyan-500 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {isSigningIn ? 'Signing in...' : 'Sign in'}
+            </button>
+            {authError && <p role="alert" className="w-full text-xs text-rose-400">{authError}</p>}
+          </form>
+        )}
+
         {/* Sync Status & RBAC Security Banner */}
         <div className="mt-4 flex flex-wrap items-center justify-between gap-3 px-4 py-2.5 bg-slate-950/70 border border-slate-800 rounded-xl text-xs">
           <div className="flex flex-wrap items-center gap-3">
@@ -550,7 +653,7 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
 
             <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-mono">
               <Lock className="w-3 h-3 text-emerald-400" />
-              <span>RBAC Protected: Bearer Token ({authRole.toUpperCase()})</span>
+              <span>{authToken ? `RBAC Protected: JWT (${(authRole || '').toUpperCase()})` : 'Preview mode: sign in for live admin data'}</span>
             </div>
           </div>
 
@@ -558,16 +661,18 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
             {lastSyncTime && (
               <span>Last Synced: {lastSyncTime}</span>
             )}
+            {authToken && (
             <button
-              onClick={() => handleCopyLink(authToken, 'auth_token')}
+              onClick={handleLogout}
               className="inline-flex items-center space-x-1 px-2 py-0.5 rounded bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 transition"
-              title="Copy active recruiter Bearer token for CLI/Swagger"
             >
-              <Key className="w-3 h-3 text-amber-400" />
-              <span>{copiedLink === 'auth_token' ? 'Copied Token' : 'Copy Recruiter Token'}</span>
+              <span>Sign out</span>
             </button>
+            )}
           </div>
         </div>
+
+        {liveError && <p role="alert" className="mt-2 text-xs text-rose-400">{liveError}</p>}
 
         {/* Link Cards Grid */}
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-3.5 mt-5">

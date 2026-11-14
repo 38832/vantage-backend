@@ -308,34 +308,6 @@ const ENDPOINTS: Endpoint[] = [
   },
   {
     method: 'POST',
-    path: '/api/auth/demo-token',
-    category: 'Authentication',
-    summary: 'Generate Recruiter JWT Bearer Token',
-    description: 'Issues an instant signed HS256 JWT access token with role "recruiter" for testing protected Admin ATS endpoints and Swagger UI.',
-    requestBody: {
-      role: 'recruiter',
-      email: 'nouman@ugetjob.com',
-      name: 'Nouman Qureshi'
-    },
-    responseBody: {
-      success: true,
-      data: {
-        access_token: 'eyJhbGciOiAiSFMyNTYiLCAidHlwIjogIkpXVCJ9...',
-        token_type: 'bearer',
-        expires_in: 604800,
-        role: 'recruiter',
-        user: {
-          id: 'recruiter-nouman-01',
-          email: 'nouman@ugetjob.com',
-          role: 'recruiter',
-          full_name: 'Nouman Qureshi',
-          auth_method: 'jwt'
-        }
-      }
-    }
-  },
-  {
-    method: 'POST',
     path: '/api/auth/login',
     category: 'Authentication',
     summary: 'Recruiter & Admin Login',
@@ -366,8 +338,7 @@ const ENDPOINTS: Endpoint[] = [
       data: {
         id: 'recruiter-nouman-01',
         email: 'nouman@ugetjob.com',
-        role: 'recruiter',
-        full_name: 'Nouman Qureshi',
+          full_name: 'Nouman Qureshi',
         auth_method: 'jwt'
       }
     }
@@ -383,8 +354,7 @@ const ENDPOINTS: Endpoint[] = [
       data: {
         id: 'recruiter-nouman-01',
         email: 'nouman@ugetjob.com',
-        role: 'recruiter',
-        full_name: 'Nouman Qureshi',
+          full_name: 'Nouman Qureshi',
         auth_method: 'jwt'
       }
     }
@@ -546,7 +516,7 @@ export default function App() {
   const getCurlSnippet = (ep: Endpoint) => {
     let curl = `curl -X ${ep.method} "http://localhost:8000${ep.path}" \\\n  -H "Accept: application/json"`;
     if (ep.category === 'Admin ATS') {
-      curl += ` \\\n  -H "Authorization: Bearer <recruiter_jwt_token>"`;
+      curl += ` \\n  -H "Authorization: Bearer YOUR_ACCESS_TOKEN"`;
     }
     if (ep.requestBody) {
       curl += ` \\\n  -H "Content-Type: application/json" \\\n  -d '${JSON.stringify(ep.requestBody, null, 2)}'`;

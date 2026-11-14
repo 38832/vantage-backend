@@ -1,4 +1,6 @@
+import secrets
 from typing import List
+from pydantic import Field
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
@@ -10,9 +12,9 @@ class Settings(BaseSettings):
     database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/ugetjob"
     
     # Supabase Storage & Client
-    supabase_url: str = "https://example.supabase.co"
-    supabase_key: str = "anon-key"
-    supabase_service_role_key: str = "service-role-key"
+    supabase_url: str = ""
+    supabase_key: str = ""
+    supabase_service_role_key: str = ""
     
     candidate_resumes_bucket: str = "candidate-resumes"
     company_documents_bucket: str = "company-documents"
@@ -23,10 +25,9 @@ class Settings(BaseSettings):
     secret_key: str = "secret-key-change-me"
 
     # JWT & RBAC Authentication
-    jwt_secret: str = "ugetjob-jwt-secret-key-recruiter-ats-2026"
+    jwt_secret: str = Field(default_factory=lambda: secrets.token_urlsafe(48))
     jwt_algorithm: str = "HS256"
-    jwt_access_token_expire_minutes: int = 60 * 24 * 7  # 7 days default
-    admin_api_key: str = "ugetjob-admin-dev-key-2026"
+    jwt_access_token_expire_minutes: int = 60
 
     # Detailed Console Logging Toggle
     # Set to True to print full request/response bodies, sorting criteria, and mutation diffs in terminal
