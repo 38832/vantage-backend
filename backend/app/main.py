@@ -26,10 +26,12 @@ app = FastAPI(
 # CORS Middleware Configuration
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=settings.cors_origins or ["*"],
+    allow_origins=settings.cors_origins,
+    allow_origin_regex=r"^https?://([a-zA-Z0-9-]+\.)*(ugetjob365\.com|ugetjob\.com|onrender\.com|vercel\.app)(:\d+)?$",
     allow_credentials=True,
-    allow_methods=["GET", "POST", "PATCH", "DELETE", "OPTIONS"],
+    allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["*"],
 )
 
 
@@ -40,7 +42,7 @@ async def detailed_terminal_logging_middleware(request: Request, call_next):
     route path, query params, response duration, and response JSON payloads.
     Controlled dynamically by settings.enable_detailed_logs and set_detailed_logging().
     """
-    if not is_detailed_logging_enabled():
+    if request.method == "OPTIONS" or not is_detailed_logging_enabled():
         return await call_next(request)
 
     start_time = time.perf_counter()

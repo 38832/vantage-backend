@@ -21,7 +21,11 @@ class Settings(BaseSettings):
     job_attachments_bucket: str = "job-attachments"
     
     # CORS & Security Secrets
-    allowed_origins: str = "http://localhost:3000,http://127.0.0.1:3000,https://ugetjob.com,https://www.ugetjob.com"
+    allowed_origins: str = (
+        "http://localhost:3000,http://127.0.0.1:3000,http://localhost:5173,"
+        "https://ugetjob365.com,https://www.ugetjob365.com,"
+        "https://ugetjob.com,https://www.ugetjob.com"
+    )
     secret_key: str = "secret-key-change-me"
 
     # JWT & RBAC Authentication
@@ -36,7 +40,21 @@ class Settings(BaseSettings):
 
     @property
     def cors_origins(self) -> List[str]:
-        return [origin.strip() for origin in self.allowed_origins.split(",") if origin.strip()]
+        raw = self.allowed_origins or ""
+        origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+        defaults = [
+            "https://ugetjob365.com",
+            "https://www.ugetjob365.com",
+            "https://ugetjob.com",
+            "https://www.ugetjob.com",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:5173",
+        ]
+        for d in defaults:
+            if d not in origins:
+                origins.append(d)
+        return origins
 
     class Config:
         env_file = ".env"
