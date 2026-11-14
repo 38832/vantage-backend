@@ -26,6 +26,64 @@ BG_MAGENTA = "\033[45m"
 # Dynamic logging toggle state (defaults to settings.enable_detailed_logs)
 _DETAILED_LOGGING_OVERRIDE: Optional[bool] = None
 
+SENSITIVE_KEY_NAMES = {
+    "password",
+    "access_token",
+    "refresh_token",
+    "token",
+    "secret",
+    "secret_key",
+    "authorization",
+    "api_key",
+    "service_role",
+    "supabase_key",
+    "credentials",
+}
+
+
+def is_sensitive_key(key: str) -> bool:
+    """Check if a dictionary key name is sensitive and should be redacted."""
+    key_lower = key.lower()
+    if key_lower in {"pass", "pwd"}:
+        return True
+    return any(sens in key_lower for sens in SENSITIVE_KEY_NAMES)
+
+
+def sanitize_payload(data: Any) -> Any:
+    """
+    Recursively sanitize sensitive fields (passwords, tokens, secrets)
+    from request/response bodies before terminal logging.
+    Returns a copy without mutating the original input.
+    """
+    if isinstance(data, dict):
+        sanitized = {}
+        for k, v in data.items():
+            if is_sensitive_key(str(k)):
+                sanitized[k] = "[REDACTED]"
+            else:
+                sanitized[k] = sanitize_payload(v)
+        return sanitized
+    elif isinstance(data, list):
+        return [sanitize_payload(item) for item in data]
+    elif isinstance(data, str):
+        # If the string is a serialized JSON object, parse and sanitize it
+        trimmed = data.strip()
+        if (trimmed.startswith("{") and trimmed.endswith("}")) or (trimmed.startswith("[") and trimmed.endswith("]")):
+            try:
+                parsed = json.loads(trimmed)
+                return json.dumps(sanitize_payload(parsed))
+            except Exception:
+                pass
+        # If the string looks like a JWT token (e.g. eyJhbGci...)
+        if data.startswith("eyJ") and data.count(".") == 2 and len(data) > 40:
+            return "[REDACTED_JWT]"
+        # If the string starts with Bearer
+        if data.lower().startswith("bearer eyJ"):
+            return "Bearer [REDACTED_JWT]"
+        return data
+    return data
+
+
 def is_detailed_logging_enabled() -> bool:
     """
     Check if dynamic detailed console logging is currently enabled.
@@ -47,18 +105,19 @@ def set_detailed_logging(enabled: bool) -> bool:
 
 
 def _format_json_safely(data: Any, max_length: int = 15000) -> str:
-    """Format dictionary or JSON string with indentation and bounds checking."""
+    """Format dictionary or JSON string with indentation, bounds checking, and credential sanitization."""
     try:
-        if isinstance(data, (dict, list)):
-            formatted = json.dumps(data, indent=2, default=str)
-        elif isinstance(data, str):
+        clean_data = sanitize_payload(data)
+        if isinstance(clean_data, (dict, list)):
+            formatted = json.dumps(clean_data, indent=2, default=str)
+        elif isinstance(clean_data, str):
             try:
-                parsed = json.loads(data)
+                parsed = json.loads(clean_data)
                 formatted = json.dumps(parsed, indent=2, default=str)
             except Exception:
-                formatted = data
+                formatted = clean_data
         else:
-            formatted = str(data)
+            formatted = str(clean_data)
 
         if len(formatted) > max_length:
             return formatted[:max_length] + f"\n... [Truncated {len(formatted) - max_length} bytes]"
@@ -86,7 +145,8 @@ def log_http_request(
     print(f"{CYAN}│{RESET} {BOLD}Time:{RESET} {now_str} | {BOLD}Client:{RESET} {client_host or 'Unknown'}")
     
     if query_params:
-        params_str = ", ".join(f"{k}='{v}'" for k, v in query_params.items())
+        clean_params = sanitize_payload(query_params)
+        params_str = ", ".join(f"{k}='{v}'" for k, v in clean_params.items())
         print(f"{CYAN}│{RESET} {BOLD}Query Parameters:{RESET} {YELLOW}{params_str}{RESET}")
     else:
         print(f"{CYAN}│{RESET} {BOLD}Query Parameters:{RESET} {DIM}None{RESET}")

@@ -720,3 +720,64 @@ async def test_demo_token_endpoint_is_removed(unauthenticated_client):
         json={"role": "admin"},
     )
     assert response.status_code == 404
+
+
+def test_sanitize_payload_redacts_credentials_and_tokens():
+    from app.core.logger import sanitize_payload
+
+    data = {
+        "email": "admin@example.com",
+        "password": "SuperSecretPassword123!",
+        "access_token": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJzdWIiOiIxMjM0NTY3ODkwIn0.doNotLeakMe",
+        "nested": {
+            "api_key": "secret-api-key",
+            "authorization": "Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.token.part",
+            "safe_number": 42,
+            "items": ["safe_string", {"sub_password": "nested-secret"}],
+        },
+    }
+    sanitized = sanitize_payload(data)
+
+    assert sanitized["email"] == "admin@example.com"
+    assert sanitized["password"] == "[REDACTED]"
+    assert sanitized["access_token"] == "[REDACTED]"
+    assert sanitized["nested"]["api_key"] == "[REDACTED]"
+    assert sanitized["nested"]["authorization"] == "[REDACTED]"
+    assert sanitized["nested"]["safe_number"] == 42
+    assert sanitized["nested"]["items"][0] == "safe_string"
+    assert sanitized["nested"]["items"][1]["sub_password"] == "[REDACTED]"
+    # Verify original dictionary was not mutated
+    assert data["password"] == "SuperSecretPassword123!"
+
+
+def test_supabase_auth_client_caching_and_smart_key_resolution(monkeypatch):
+    from types import SimpleNamespace
+    from app.api.routes import auth as auth_routes
+
+    auth_routes._reset_cached_client()
+
+    create_client_calls = []
+
+    def mock_create_client(url, key):
+        create_client_calls.append((url, key))
+        return SimpleNamespace(url=url, key=key)
+
+    monkeypatch.setattr(auth_routes, "create_client", mock_create_client)
+    monkeypatch.setattr(auth_routes.settings, "supabase_url", "https://example.supabase.co")
+    # Simulate publishable key that should be bypassed when service role key is present
+    monkeypatch.setattr(auth_routes.settings, "supabase_key", "sb_publishable_dummy_key")
+    monkeypatch.setattr(auth_routes.settings, "supabase_service_role_key", "eyJ_service_role_secret")
+
+    # 1. Calling get_supabase_auth_client should pick service role key directly
+    client1 = auth_routes.get_supabase_auth_client()
+    assert len(create_client_calls) == 1
+    assert create_client_calls[0][1] == "eyJ_service_role_secret"
+
+    # 2. Calling it again should return the exact cached instance without re-calling create_client
+    client2 = auth_routes.get_supabase_auth_client()
+    assert client2 is client1
+    assert len(create_client_calls) == 1
+
+    # Cleanup
+    auth_routes._reset_cached_client()
+
