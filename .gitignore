@@ -8,3 +8,10 @@ coverage/
 !.env.example
 __pycache__/
 *.py[cod]
+
+# Graphify local build, cache and lock files
+graphify-out/cache/
+graphify-out/.graphify_*
+graphify-out/.*.lock
+graphify-out/*.lock
+
