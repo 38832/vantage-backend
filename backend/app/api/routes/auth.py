@@ -34,19 +34,29 @@ class LoginPayload(BaseModel):
 
 @router.post("/login", response_model=ApiResponse[TokenResponse])
 async def login(payload: LoginPayload):
-    if not settings.supabase_url or not settings.supabase_key:
+    auth_key = settings.supabase_key or settings.supabase_service_role_key
+    if not settings.supabase_url or not auth_key:
         raise HTTPException(
             status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
             detail="Staff authentication is not configured.",
         )
 
     try:
-        auth_client = create_client(settings.supabase_url, settings.supabase_key)
-    except SupabaseException as exc:
-        raise HTTPException(
-            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
-            detail="Staff authentication is not configured correctly.",
-        ) from exc
+        auth_client = create_client(settings.supabase_url, auth_key)
+    except SupabaseException:
+        if settings.supabase_service_role_key and auth_key != settings.supabase_service_role_key:
+            try:
+                auth_client = create_client(settings.supabase_url, settings.supabase_service_role_key)
+            except SupabaseException as exc:
+                raise HTTPException(
+                    status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                    detail="Staff authentication is not configured correctly.",
+                ) from exc
+        else:
+            raise HTTPException(
+                status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+                detail="Staff authentication is not configured correctly.",
+            )
 
     try:
         auth_response = await asyncio.to_thread(
