@@ -10,13 +10,13 @@ from pydantic import BaseModel
 from app.api.deps import get_db, get_current_admin, AdminUser
 from app.models.application import Application, ApplicationStatus
 from app.models.candidate import Candidate
-from app.models.job import Job, JobStatus
+from app.models.job import Job, JobCategory, JobStatus
 from app.models.ats_note import ATSNote
 from app.schemas.response import ApiResponse, MetaData
 from app.schemas.application import (
     ApplicationOut, ApplicationUpdate, ATSNoteCreate, ATSNoteOut, ATSDashboardStats
 )
-from app.schemas.job import JobUpdate, JobDetailOut
+from app.schemas.job import JobCreate, JobUpdate, JobDetailOut
 from app.core.logger import (
     log_query_details,
     log_mutation_details,
@@ -319,6 +319,38 @@ async def add_ats_note(
     )
 
     return ApiResponse.ok(note)
+
+
+@router.post("/jobs", response_model=ApiResponse[JobDetailOut])
+async def create_job(
+    payload: JobCreate,
+    db: AsyncSession = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+):
+    """
+    Publish a new recruitment drive / job opening from Admin ATS
+    """
+    category = await db.get(JobCategory, payload.category_id)
+    if not category or not category.is_active:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Job category does not exist or is inactive",
+        )
+
+    job = Job(**payload.model_dump(exclude={"salary"}), status=JobStatus.published)
+    db.add(job)
+    await db.commit()
+    await db.refresh(job)
+
+    log_mutation_details(
+        entity_name="Job",
+        entity_id=job.id,
+        operation="CREATE",
+        changes=payload.model_dump(exclude={"salary"}),
+        details=f"Job Title: '{job.title}', Published by: {current_admin.email} ({current_admin.role})",
+    )
+
+    return ApiResponse.ok(job)
 
 
 @router.patch("/jobs/{job_id}", response_model=ApiResponse[JobDetailOut])

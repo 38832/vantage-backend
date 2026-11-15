@@ -23,13 +23,21 @@ app = FastAPI(
     redoc_url="/redoc"
 )
 
-# CORS Middleware Configuration
+# CORS Middleware Configuration (SEC-02: Restricted strict origin policy)
+# Disallow open multi-tenant wildcards (*.vercel.app, *.onrender.com).
+# Allow exact origins from settings.cors_origins, official domain subdomains,
+# and local development loopbacks.
+ALLOWED_ORIGIN_REGEX = (
+    r"^https://([a-zA-Z0-9-]+\.)*(ugetjob365\.com|ugetjob\.com)$"
+    r"|^http://(localhost|127\.0\.0\.1)(:\d+)?$"
+)
+
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
-    allow_origin_regex=r"^https?://([a-zA-Z0-9-]+\.)*(ugetjob365\.com|ugetjob\.com|onrender\.com|vercel\.app)(:\d+)?$",
+    allow_origin_regex=ALLOWED_ORIGIN_REGEX,
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
     expose_headers=["*"],
 )

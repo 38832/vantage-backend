@@ -5,11 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_db
+from app.api.deps import get_db, get_current_admin, AdminUser
 from app.models.job import Job, JobCategory, JobStatus
 from app.schemas.response import ApiResponse, MetaData
 from app.schemas.job import JobCategoryOut, JobCreate, JobListItemOut, JobDetailOut
-from app.core.logger import log_query_details
+from app.core.logger import log_query_details, log_mutation_details
 
 router = APIRouter()
 
@@ -33,7 +33,14 @@ async def ensure_default_categories(db: AsyncSession):
     await db.commit()
 
 @router.post("/jobs", response_model=ApiResponse[JobDetailOut])
-async def create_job(payload: JobCreate, db: AsyncSession = Depends(get_db)):
+async def create_job(
+    payload: JobCreate,
+    db: AsyncSession = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+):
+    """
+    Create and publish a new job opening (Protected: Staff / Admin only)
+    """
     category = await db.get(JobCategory, payload.category_id)
     if not category or not category.is_active:
         raise HTTPException(
@@ -45,6 +52,14 @@ async def create_job(payload: JobCreate, db: AsyncSession = Depends(get_db)):
     db.add(job)
     await db.commit()
     await db.refresh(job)
+
+    log_mutation_details(
+        entity_name="Job",
+        entity_id=job.id,
+        operation="CREATE",
+        changes=payload.model_dump(exclude={"salary"}),
+        details=f"Job Title: '{job.title}', Published by: {current_admin.email} ({current_admin.role})",
+    )
 
     return ApiResponse.ok(job)
 

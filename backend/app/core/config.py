@@ -41,15 +41,21 @@ class Settings(BaseSettings):
     @property
     def cors_origins(self) -> List[str]:
         raw = self.allowed_origins or ""
-        origins = [origin.strip() for origin in raw.split(",") if origin.strip()]
+        origins = [origin.strip().rstrip("/") for origin in raw.split(",") if origin.strip()]
         defaults = [
             "https://ugetjob365.com",
             "https://www.ugetjob365.com",
             "https://ugetjob.com",
             "https://www.ugetjob.com",
+            "https://ugetjob.vercel.app",
+            "https://vantage2.vercel.app",
+            "https://vantage-backend-2b7h.onrender.com",
             "http://localhost:3000",
             "http://127.0.0.1:3000",
             "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:8000",
+            "http://127.0.0.1:8000",
         ]
         for d in defaults:
             if d not in origins:

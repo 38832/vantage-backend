@@ -781,3 +781,135 @@ def test_supabase_auth_client_caching_and_smart_key_resolution(monkeypatch):
     # Cleanup
     auth_routes._reset_cached_client()
 
+
+@pytest.mark.asyncio
+async def test_post_jobs_unauthenticated_returns_401(unauthenticated_client, db_session):
+    category = await seed_category(db_session)
+    response = await unauthenticated_client.post("/api/jobs", json={
+        "category_id": str(category.id),
+        "title": "Unauthorized Vacancy",
+        "company_name": "Rogue Corp",
+        "location_country": "UAE",
+        "job_description": "Should fail",
+    })
+    assert response.status_code == 401
+    assert "authentication required" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_post_jobs_candidate_role_returns_403(unauthenticated_client, db_session):
+    from app.core.auth import create_access_token
+    candidate_token = create_access_token({
+        "sub": "candidate-123",
+        "email": "candidate@example.com",
+        "role": "candidate",
+    })
+    category = await seed_category(db_session)
+    response = await unauthenticated_client.post(
+        "/api/jobs",
+        json={
+            "category_id": str(category.id),
+            "title": "Unauthorized Vacancy",
+            "company_name": "Rogue Corp",
+            "location_country": "UAE",
+            "job_description": "Should fail",
+        },
+        headers={"Authorization": f"Bearer {candidate_token}"}
+    )
+    assert response.status_code == 403
+    assert "access denied" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_post_jobs_admin_role_succeeds(unauthenticated_client, db_session):
+    from app.core.auth import create_access_token
+    admin_token = create_access_token({
+        "sub": "admin-123",
+        "email": "recruiter@ugetjob.com",
+        "role": "recruiter",
+    })
+    category = await seed_category(db_session)
+    response = await unauthenticated_client.post(
+        "/api/jobs",
+        json={
+            "category_id": str(category.id),
+            "title": "Certified Crane Operator",
+            "company_name": "Gulf Heavy Logistics",
+            "location_country": "Qatar",
+            "location_city": "Doha",
+            "job_description": "Heavy machinery operation.",
+            "salary": "QAR 4500",
+        },
+        headers={"Authorization": f"Bearer {admin_token}"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["title"] == "Certified Crane Operator"
+    assert body["data"]["status"] == "published"
+
+
+@pytest.mark.asyncio
+async def test_post_admin_jobs_succeeds(unauthenticated_client, db_session):
+    from app.core.auth import create_access_token
+    admin_token = create_access_token({
+        "sub": "admin-999",
+        "email": "admin@ugetjob.com",
+        "role": "admin",
+    })
+    category = await seed_category(db_session)
+    response = await unauthenticated_client.post(
+        "/api/admin/jobs",
+        json={
+            "category_id": str(category.id),
+            "title": "Substation Engineer",
+            "company_name": "Saudi Electricity Co.",
+            "location_country": "Saudi Arabia",
+            "job_description": "High voltage substation testing.",
+        },
+        headers={"Authorization": f"Bearer {admin_token}"}
+    )
+    assert response.status_code == 200
+    body = response.json()
+    assert body["success"] is True
+    assert body["data"]["title"] == "Substation Engineer"
+
+
+@pytest.mark.asyncio
+async def test_cors_strict_policy(unauthenticated_client):
+    # 1. Untrusted multi-tenant origins (malicious Vercel/Render instances) must be rejected
+    untrusted_origins = [
+        "https://attacker.vercel.app",
+        "https://evil-phishing.onrender.com",
+        "https://random-tenant.vercel.app",
+        "https://not-ugetjob.com",
+    ]
+    for origin in untrusted_origins:
+        res = await unauthenticated_client.options(
+            "/api/health",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "GET",
+            }
+        )
+        assert res.headers.get("access-control-allow-origin") != origin, f"Origin {origin} should not be allowed"
+
+    # 2. Trusted origins must be permitted
+    trusted_origins = [
+        "https://ugetjob365.com",
+        "https://www.ugetjob365.com",
+        "https://ugetjob.com",
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ]
+    for origin in trusted_origins:
+        res = await unauthenticated_client.options(
+            "/api/health",
+            headers={
+                "Origin": origin,
+                "Access-Control-Request-Method": "GET",
+            }
+        )
+        assert res.headers.get("access-control-allow-origin") == origin, f"Origin {origin} should be allowed"
+
+
