@@ -292,7 +292,54 @@ CREATE INDEX IF NOT EXISTS idx_candidate_resumes_candidate ON candidate_resumes(
 CREATE INDEX IF NOT EXISTS idx_candidate_resumes_primary ON candidate_resumes(candidate_id, is_primary);
 
 -- ---------------------------------------------------------------------
--- 4. STORAGE BUCKETS
+-- 4. STORAGE & AUTH COMPATIBILITY
+-- ---------------------------------------------------------------------
+
+-- Ensure auth and storage schemas exist for local Docker / vanilla PostgreSQL compatibility
+CREATE SCHEMA IF NOT EXISTS auth;
+CREATE OR REPLACE FUNCTION auth.jwt() RETURNS jsonb AS $$
+BEGIN
+    RETURN NULL;
+END;
+$$ LANGUAGE plpgsql STABLE;
+
+CREATE SCHEMA IF NOT EXISTS storage;
+CREATE TABLE IF NOT EXISTS storage.buckets (
+    id TEXT PRIMARY KEY,
+    name TEXT NOT NULL,
+    public BOOLEAN DEFAULT false,
+    file_size_limit BIGINT,
+    allowed_mime_types TEXT[]
+);
+CREATE TABLE IF NOT EXISTS storage.objects (
+    id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    bucket_id TEXT REFERENCES storage.buckets(id),
+    name TEXT,
+    owner UUID,
+    created_at TIMESTAMPTZ DEFAULT NOW(),
+    updated_at TIMESTAMPTZ DEFAULT NOW(),
+    last_accessed_at TIMESTAMPTZ DEFAULT NOW(),
+    metadata JSONB
+);
+ALTER TABLE storage.objects ENABLE ROW LEVEL SECURITY;
+
+-- Helper function to check if the current JWT has a staff role (admin or recruiter)
+-- Strictly checks app_metadata and token root claims; excludes client-writable user_metadata to prevent privilege escalation.
+CREATE OR REPLACE FUNCTION is_staff_user()
+RETURNS BOOLEAN AS $$
+BEGIN
+    RETURN (
+        COALESCE(LOWER(auth.jwt()->>'role'), '') IN ('admin', 'recruiter')
+        OR COALESCE(LOWER(auth.jwt()->'app_metadata'->>'role'), '') IN ('admin', 'recruiter')
+    );
+EXCEPTION
+    WHEN OTHERS THEN
+        RETURN FALSE;
+END;
+$$ LANGUAGE plpgsql SECURITY DEFINER SET search_path = public, auth;
+
+-- ---------------------------------------------------------------------
+-- 5. STORAGE BUCKETS & POLICIES
 -- ---------------------------------------------------------------------
 
 INSERT INTO storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
@@ -340,16 +387,19 @@ ON CONFLICT (id) DO UPDATE SET
     file_size_limit = EXCLUDED.file_size_limit,
     allowed_mime_types = EXCLUDED.allowed_mime_types;
 
+DROP POLICY IF EXISTS "Allow public resume upload" ON storage.objects;
 CREATE POLICY "Allow public resume upload"
 ON storage.objects FOR INSERT
 TO public
 WITH CHECK (bucket_id = 'candidate-resumes');
 
+DROP POLICY IF EXISTS "Allow recruiters to read candidate resumes" ON storage.objects;
 CREATE POLICY "Allow recruiters to read candidate resumes"
 ON storage.objects FOR SELECT
 TO authenticated
-USING (bucket_id = 'candidate-resumes');
+USING (bucket_id = 'candidate-resumes' AND is_staff_user());
 
+DROP POLICY IF EXISTS "Public read for job attachments" ON storage.objects;
 CREATE POLICY "Public read for job attachments"
 ON storage.objects FOR SELECT
 TO public
@@ -410,7 +460,156 @@ FOR EACH ROW
 EXECUTE FUNCTION update_updated_at_column();
 
 -- ---------------------------------------------------------------------
--- 6. SEED DATA
+-- 6. ROW LEVEL SECURITY (RLS) POLICIES
+-- ---------------------------------------------------------------------
+
+-- Ensure roles exist for plain PostgreSQL / Docker compatibility
+DO $$ BEGIN
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'anon') THEN
+        CREATE ROLE anon NOLOGIN;
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'authenticated') THEN
+        CREATE ROLE authenticated NOLOGIN;
+    END IF;
+    IF NOT EXISTS (SELECT FROM pg_roles WHERE rolname = 'service_role') THEN
+        CREATE ROLE service_role NOLOGIN;
+    END IF;
+END $$;
+
+-- 6.1 Enable RLS on all application, candidate and ATS tables
+ALTER TABLE job_categories ENABLE ROW LEVEL SECURITY;
+ALTER TABLE jobs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE candidates ENABLE ROW LEVEL SECURITY;
+ALTER TABLE candidate_resumes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE applications ENABLE ROW LEVEL SECURITY;
+ALTER TABLE application_documents ENABLE ROW LEVEL SECURITY;
+ALTER TABLE ats_notes ENABLE ROW LEVEL SECURITY;
+ALTER TABLE employers ENABLE ROW LEVEL SECURITY;
+ALTER TABLE employer_inquiries ENABLE ROW LEVEL SECURITY;
+ALTER TABLE service_requests ENABLE ROW LEVEL SECURITY;
+ALTER TABLE job_search_activity ENABLE ROW LEVEL SECURITY;
+ALTER TABLE admin_users ENABLE ROW LEVEL SECURITY;
+
+-- 6.2 job_categories Policies
+-- Public (anon & authenticated) can view active categories
+DROP POLICY IF EXISTS "Public can view active job categories" ON job_categories;
+CREATE POLICY "Public can view active job categories"
+ON job_categories FOR SELECT
+TO public
+USING (is_active = true);
+
+-- Staff can perform all operations on job categories
+DROP POLICY IF EXISTS "Staff full access to job categories" ON job_categories;
+CREATE POLICY "Staff full access to job categories"
+ON job_categories FOR ALL
+TO authenticated
+USING (is_staff_user())
+WITH CHECK (is_staff_user());
+
+-- 6.3 jobs Policies
+-- Public can view published jobs
+DROP POLICY IF EXISTS "Public can view published jobs" ON jobs;
+CREATE POLICY "Public can view published jobs"
+ON jobs FOR SELECT
+TO public
+USING (status = 'published');
+
+-- Staff can view, create, update, and delete all jobs
+DROP POLICY IF EXISTS "Staff full access to jobs" ON jobs;
+CREATE POLICY "Staff full access to jobs"
+ON jobs FOR ALL
+TO authenticated
+USING (is_staff_user())
+WITH CHECK (is_staff_user());
+
+-- 6.4 candidates Policies
+-- Strictly protected: Denies public PostgREST direct reads.
+-- Only authorized staff and backend services can access candidate data.
+DROP POLICY IF EXISTS "Staff can manage candidates" ON candidates;
+CREATE POLICY "Staff can manage candidates"
+ON candidates FOR ALL
+TO authenticated
+USING (is_staff_user())
+WITH CHECK (is_staff_user());
+
+-- 6.5 candidate_resumes Policies
+-- Strictly protected: Candidate resumes contain sensitive candidate PII.
+DROP POLICY IF EXISTS "Staff can manage candidate resumes" ON candidate_resumes;
+CREATE POLICY "Staff can manage candidate resumes"
+ON candidate_resumes FOR ALL
+TO authenticated
+USING (is_staff_user())
+WITH CHECK (is_staff_user());
+
+-- 6.6 applications Policies
+-- Candidate application records and ATS stages.
+DROP POLICY IF EXISTS "Staff can manage applications" ON applications;
+CREATE POLICY "Staff can manage applications"
+ON applications FOR ALL
+TO authenticated
+USING (is_staff_user())
+WITH CHECK (is_staff_user());
+
+-- 6.7 application_documents Policies
+-- Passports, trade tests, medical clearances.
+DROP POLICY IF EXISTS "Staff can manage application documents" ON application_documents;
+CREATE POLICY "Staff can manage application documents"
+ON application_documents FOR ALL
+TO authenticated
+USING (is_staff_user())
+WITH CHECK (is_staff_user());
+
+-- 6.8 ats_notes Policies
+-- Internal recruiter evaluation notes.
+DROP POLICY IF EXISTS "Staff can manage ATS notes" ON ats_notes;
+CREATE POLICY "Staff can manage ATS notes"
+ON ats_notes FOR ALL
+TO authenticated
+USING (is_staff_user())
+WITH CHECK (is_staff_user());
+
+-- 6.9 employers Policies
+DROP POLICY IF EXISTS "Staff can manage employers" ON employers;
+CREATE POLICY "Staff can manage employers"
+ON employers FOR ALL
+TO authenticated
+USING (is_staff_user())
+WITH CHECK (is_staff_user());
+
+-- 6.10 employer_inquiries Policies
+DROP POLICY IF EXISTS "Staff can manage employer inquiries" ON employer_inquiries;
+CREATE POLICY "Staff can manage employer inquiries"
+ON employer_inquiries FOR ALL
+TO authenticated
+USING (is_staff_user())
+WITH CHECK (is_staff_user());
+
+-- 6.11 service_requests Policies
+DROP POLICY IF EXISTS "Staff can manage service requests" ON service_requests;
+CREATE POLICY "Staff can manage service requests"
+ON service_requests FOR ALL
+TO authenticated
+USING (is_staff_user())
+WITH CHECK (is_staff_user());
+
+-- 6.12 job_search_activity Policies
+DROP POLICY IF EXISTS "Staff can manage search activity" ON job_search_activity;
+CREATE POLICY "Staff can manage search activity"
+ON job_search_activity FOR ALL
+TO authenticated
+USING (is_staff_user())
+WITH CHECK (is_staff_user());
+
+-- 6.13 admin_users Policies
+DROP POLICY IF EXISTS "Staff can manage admin users" ON admin_users;
+CREATE POLICY "Staff can manage admin users"
+ON admin_users FOR ALL
+TO authenticated
+USING (is_staff_user())
+WITH CHECK (is_staff_user());
+
+-- ---------------------------------------------------------------------
+-- 7. SEED DATA
 -- ---------------------------------------------------------------------
 
 INSERT INTO job_categories (id, slug, name, description) VALUES
