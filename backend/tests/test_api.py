@@ -3,6 +3,7 @@ import uuid
 
 import pytest
 from app.models.job import JobCategory, Job, JobStatus
+from app.models.candidate import Candidate
 from app.models.application import Application, ApplicationStatus
 
 
@@ -911,5 +912,106 @@ async def test_cors_strict_policy(unauthenticated_client):
             }
         )
         assert res.headers.get("access-control-allow-origin") == origin, f"Origin {origin} should be allowed"
+
+
+@pytest.mark.asyncio
+async def test_get_candidate_resumes_unauthenticated_returns_401(unauthenticated_client, db_session):
+    candidate = await _create_candidate(db_session)
+    response = await unauthenticated_client.get(f"/api/applications/candidates/{candidate.id}/resumes")
+    assert response.status_code == 401
+    assert "authentication required" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_get_candidate_resumes_candidate_role_returns_403(unauthenticated_client, db_session):
+    from app.core.auth import create_access_token
+    candidate_token = create_access_token({
+        "sub": "cand-user-1",
+        "email": "cand@example.com",
+        "role": "candidate",
+    })
+    candidate = await _create_candidate(db_session)
+    response = await unauthenticated_client.get(
+        f"/api/applications/candidates/{candidate.id}/resumes",
+        headers={"Authorization": f"Bearer {candidate_token}"}
+    )
+    assert response.status_code == 403
+    assert "access denied" in response.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_quick_apply_phone_matching_prevents_idor_overwrite(client, db_session):
+    # Initial application creates candidate profile
+    res1 = await client.post("/api/applications/quick-apply", json={
+        "full_name": "Original Name",
+        "phone": "+971551122334",
+        "email": "original@example.com",
+        "current_job_title": "Senior MEP Engineer",
+        "years_experience": 8,
+        "consent_to_contact": True,
+    })
+    assert res1.status_code == 200
+    cand_id = res1.json()["data"]["candidate_id"]
+
+    # Second application from another entity trying to overwrite name/email/experience with same phone
+    res2 = await client.post("/api/applications/quick-apply", json={
+        "full_name": "Attacker Impersonator",
+        "phone": "+971551122334",
+        "email": "hacked@example.com",
+        "current_job_title": "Fake Title",
+        "years_experience": 1,
+        "consent_to_contact": True,
+    })
+    assert res2.status_code == 200
+    assert res2.json()["data"]["candidate_id"] == cand_id
+
+    # Verify candidate identity in DB was not hijacked
+    cand_in_db = await db_session.get(Candidate, uuid.UUID(cand_id))
+    assert cand_in_db.full_name == "Original Name"
+    assert cand_in_db.email == "original@example.com"
+    assert cand_in_db.current_job_title == "Senior MEP Engineer"
+    assert cand_in_db.years_experience == 8
+
+
+@pytest.mark.asyncio
+async def test_quick_apply_does_not_leak_or_overwrite_existing_candidate_resume(client, db_session):
+    # Legitimate applicant submits with private Drive resume
+    res1 = await client.post("/api/applications/quick-apply", json={
+        "full_name": "Private Candidate",
+        "phone": "+971509988776",
+        "email": "private@example.com",
+        "resume_link": "https://drive.google.com/file/d/VICTIM_PRIVATE_CV/view",
+        "consent_to_contact": True,
+    })
+    assert res1.status_code == 200
+    cand_id = res1.json()["data"]["candidate_id"]
+    assert res1.json()["data"]["resume_url"] == "https://drive.google.com/file/d/VICTIM_PRIVATE_CV/view"
+
+    # Attacker queries quick-apply with victim's phone number and NO resume link
+    res_probe = await client.post("/api/applications/quick-apply", json={
+        "full_name": "Probing Attacker",
+        "phone": "+971509988776",
+        "consent_to_contact": True,
+    })
+    assert res_probe.status_code == 200
+    # Response MUST NOT leak victim's stored resume URL
+    assert res_probe.json()["data"]["resume_url"] is None
+    assert res_probe.json()["data"]["resume_source"] is None
+
+    # Attacker attempts to overwrite canonical resume with attacker link
+    res_overwrite = await client.post("/api/applications/quick-apply", json={
+        "full_name": "Attacker",
+        "phone": "+971509988776",
+        "resume_link": "https://attacker.com/malicious.pdf",
+        "consent_to_contact": True,
+    })
+    assert res_overwrite.status_code == 200
+    # Returned URL matches attacker's current submission
+    assert res_overwrite.json()["data"]["resume_url"] == "https://attacker.com/malicious.pdf"
+
+    # Verify canonical resume in Candidate table remains unchanged
+    cand = await db_session.get(Candidate, uuid.UUID(cand_id))
+    assert cand.resume_url == "https://drive.google.com/file/d/VICTIM_PRIVATE_CV/view"
+
 
 

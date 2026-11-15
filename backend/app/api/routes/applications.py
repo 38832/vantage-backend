@@ -5,7 +5,7 @@ from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, s
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.api.deps import get_db
+from app.api.deps import get_db, get_current_admin, AdminUser
 from app.models.candidate import Candidate, CandidateResume, ResumeSource
 from app.models.application import Application, ApplicationStatus
 from app.models.document import ApplicationDocument
@@ -44,6 +44,8 @@ async def quick_apply(
     cand_res = await db.execute(cand_query)
     candidate = cand_res.scalar_one_or_none()
 
+    cand_had_prior_resume = bool(candidate.has_resume or candidate.resume_url) if candidate else False
+
     if not candidate:
         candidate = Candidate(
             full_name=payload.full_name,
@@ -74,21 +76,18 @@ async def quick_apply(
         db.add(candidate)
         await db.flush()
     else:
-        # Update details
-        candidate.full_name = payload.full_name
-        if payload.email:
-            candidate.email = payload.email
-        if effective_resume_url:
+        # SEC-05 IDOR Mitigation: When matching an existing profile by phone number during public quick-apply,
+        # do not destructively overwrite candidate identity/profile fields or canonical resume.
+        if effective_resume_url and not candidate.resume_url:
             candidate.resume_url = effective_resume_url
             candidate.has_resume = True
             candidate.resume_source = effective_source
-        if job_title:
+        if job_title and not candidate.current_job_title:
             candidate.current_job_title = job_title
-        if payload.years_experience is not None:
+        if payload.years_experience is not None and not candidate.years_experience:
             candidate.years_experience = payload.years_experience
-        candidate.willing_to_relocate = payload.willing_to_relocate
 
-    # If resume link provided, save to candidate_resumes table as well
+    # If resume link provided, save to candidate_resumes table (only primary if candidate had no prior resume)
     if effective_resume_url:
         cand_resume = CandidateResume(
             candidate_id=candidate.id,
@@ -99,7 +98,7 @@ async def quick_apply(
             file_size_bytes=0,
             source=effective_source,
             drive_link=effective_resume_url,
-            is_primary=True,
+            is_primary=not cand_had_prior_resume,
         )
         db.add(cand_resume)
 
@@ -140,12 +139,13 @@ async def quick_apply(
         }
     )
 
+    # Prevent leaking previously stored candidate resume URLs in the public response
     return ApiResponse.ok({
         "application_id": str(application.id),
         "candidate_id": str(candidate.id),
         "status": application.application_status.value,
-        "resume_url": candidate.resume_url,
-        "resume_source": candidate.resume_source.value,
+        "resume_url": effective_resume_url,
+        "resume_source": effective_source.value if effective_resume_url else None,
         "message": "Application submitted successfully. Our recruitment team will review your profile."
     })
 
@@ -330,10 +330,11 @@ async def quick_apply_multipart(
 @router.get("/applications/candidates/{candidate_id}/resumes", response_model=ApiResponse[List[CandidateResumeOut]])
 async def get_candidate_resumes(
     candidate_id: uuid.UUID,
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
 ):
     """
-    List all resumes associated with a candidate from the candidate_resumes table
+    List all resumes associated with a candidate from the candidate_resumes table (Protected: Staff only)
     """
     sorting_fields = ["is_primary DESC", "created_at DESC"]
     query = (

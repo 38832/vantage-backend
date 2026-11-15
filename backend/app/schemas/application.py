@@ -60,7 +60,20 @@ class CandidateApplicationCreate(CandidateBase):
     job_id: Optional[uuid.UUID] = None
     resume_url: Optional[str] = None
     drive_link: Optional[str] = None
+    resume_link: Optional[str] = None  # Accepted as alias for drive_link / resume_url
     resume_source: Optional[ResumeSource] = ResumeSource.drive_link
+
+    @model_validator(mode="before")
+    @classmethod
+    def sync_resume_fields(cls, data):
+        if isinstance(data, dict):
+            resume = data.get("resume_link") or data.get("drive_link") or data.get("resume_url")
+            if resume:
+                if not data.get("drive_link"):
+                    data["drive_link"] = resume
+                if not data.get("resume_url"):
+                    data["resume_url"] = resume
+        return data
 
 class CandidateOut(CandidateBase):
     id: uuid.UUID
