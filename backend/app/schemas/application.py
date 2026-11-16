@@ -1,7 +1,8 @@
 import uuid
 from datetime import datetime, date
 from typing import Optional, List
-from pydantic import BaseModel, EmailStr, ConfigDict, model_validator
+from urllib.parse import urlparse
+from pydantic import BaseModel, EmailStr, ConfigDict, model_validator, field_validator
 from app.models.application import ApplicationStatus
 from app.models.candidate import ResumeSource
 
@@ -74,6 +75,19 @@ class CandidateApplicationCreate(CandidateBase):
                 if not data.get("resume_url"):
                     data["resume_url"] = resume
         return data
+
+    @field_validator("resume_url", "drive_link", "resume_link")
+    @classmethod
+    def validate_safe_url(cls, v: Optional[str]) -> Optional[str]:
+        if v is None:
+            return None
+        cleaned = v.strip()
+        if not cleaned:
+            return None
+        parsed = urlparse(cleaned)
+        if parsed.scheme.lower() not in ("http", "https") or not parsed.netloc:
+            raise ValueError("URL must have a valid http or https scheme (e.g. https://drive.google.com/...)")
+        return cleaned
 
 class CandidateOut(CandidateBase):
     id: uuid.UUID

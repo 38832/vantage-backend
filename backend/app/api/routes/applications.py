@@ -189,6 +189,15 @@ async def quick_apply_multipart(
 
     resolved_job_title = current_job_title or current_role
 
+    if drive_link:
+        try:
+            drive_link = CandidateApplicationCreate.validate_safe_url(drive_link)
+        except ValueError as exc:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail=f"Invalid drive_link: {str(exc)}"
+            )
+
     # Create candidate
     candidate = Candidate(
         full_name=full_name,

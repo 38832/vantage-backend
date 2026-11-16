@@ -670,6 +670,8 @@ async def test_auth_login_does_not_trust_user_metadata_role(
     from types import SimpleNamespace
     from app.api.routes import auth as auth_routes
 
+    auth_routes._reset_cached_client()
+
     user = SimpleNamespace(
         id="user-123",
         email="user@example.com",
@@ -1012,6 +1014,98 @@ async def test_quick_apply_does_not_leak_or_overwrite_existing_candidate_resume(
     # Verify canonical resume in Candidate table remains unchanged
     cand = await db_session.get(Candidate, uuid.UUID(cand_id))
     assert cand.resume_url == "https://drive.google.com/file/d/VICTIM_PRIVATE_CV/view"
+
+
+@pytest.mark.asyncio
+async def test_quick_apply_rejects_disallowed_url_schemes_xss(client):
+    # Test javascript: pseudo-protocol scheme is rejected
+    res_xss = await client.post("/api/applications/quick-apply", json={
+        "full_name": "XSS Attacker",
+        "phone": "+971501112244",
+        "resume_link": "javascript:alert(document.cookie)",
+        "consent_to_contact": True,
+    })
+    assert res_xss.status_code == 422
+    assert "scheme" in str(res_xss.json()).lower()
+
+    # Test data: scheme is rejected
+    res_data = await client.post("/api/applications/quick-apply", json={
+        "full_name": "XSS Attacker",
+        "phone": "+971501112245",
+        "drive_link": "data:text/html,<script>alert(1)</script>",
+        "consent_to_contact": True,
+    })
+    assert res_data.status_code == 422
+
+    # Test vbscript: scheme is rejected
+    res_vb = await client.post("/api/applications/quick-apply", json={
+        "full_name": "XSS Attacker",
+        "phone": "+971501112246",
+        "resume_url": "vbscript:msgbox(1)",
+        "consent_to_contact": True,
+    })
+    assert res_vb.status_code == 422
+
+    # Test valid https url is accepted
+    res_valid = await client.post("/api/applications/quick-apply", json={
+        "full_name": "Valid Applicant",
+        "phone": "+971501112247",
+        "resume_link": "https://drive.google.com/file/d/valid-cv/view",
+        "consent_to_contact": True,
+    })
+    assert res_valid.status_code == 200
+    assert res_valid.json()["data"]["resume_url"] == "https://drive.google.com/file/d/valid-cv/view"
+
+
+@pytest.mark.asyncio
+async def test_quick_apply_multipart_rejects_disallowed_url_schemes(client):
+    # Test multipart endpoint rejects javascript: scheme in drive_link
+    res_xss = await client.post(
+        "/api/applications/quick-apply-multipart",
+        data={
+            "full_name": "Multipart XSS Attacker",
+            "phone": "+971501112248",
+            "drive_link": "javascript:alert(1)",
+        }
+    )
+    assert res_xss.status_code == 422
+    assert "scheme" in str(res_xss.json()).lower()
+
+    # Test multipart endpoint rejects data: scheme
+    res_data = await client.post(
+        "/api/applications/quick-apply-multipart",
+        data={
+            "full_name": "Multipart XSS Attacker",
+            "phone": "+971501112249",
+            "drive_link": "data:text/html,<script>alert(1)</script>",
+        }
+    )
+    assert res_data.status_code == 422
+
+    # Test multipart endpoint rejects protocol-relative URL
+    res_proto = await client.post(
+        "/api/applications/quick-apply-multipart",
+        data={
+            "full_name": "Multipart Attacker",
+            "phone": "+971501112250",
+            "drive_link": "//evil.com/payload",
+        }
+    )
+    assert res_proto.status_code == 422
+
+    # Test multipart endpoint accepts valid https URL
+    res_valid = await client.post(
+        "/api/applications/quick-apply-multipart",
+        data={
+            "full_name": "Valid Multipart",
+            "phone": "+971501112251",
+            "drive_link": "https://drive.google.com/file/d/valid-cv-multipart/view",
+        }
+    )
+    assert res_valid.status_code == 200
+    assert res_valid.json()["data"]["resume_url"] == "https://drive.google.com/file/d/valid-cv-multipart/view"
+
+
 
 
 
