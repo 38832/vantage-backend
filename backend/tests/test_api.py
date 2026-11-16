@@ -312,7 +312,7 @@ async def test_supporting_document_upload(client, db_session):
 
     response = await client.post(f"/api/applications/{application.id}/documents", data={
         "document_type": "passport"
-    }, files={"file": ("passport.pdf", b"passport data", "application/pdf")})
+    }, files={"file": ("passport.pdf", b"%PDF-1.4 passport data", "application/pdf")})
     assert response.status_code == 200, response.text
     assert response.json()["data"]["application_id"] == str(application.id)
     assert response.json()["data"]["storage_path"]
@@ -644,6 +644,8 @@ async def test_auth_login_rejects_invalid_credentials(unauthenticated_client, mo
     from types import SimpleNamespace
     from supabase import AuthInvalidCredentialsError
     from app.api.routes import auth as auth_routes
+
+    auth_routes._reset_cached_client()
 
     def reject_credentials(credentials):
         raise AuthInvalidCredentialsError("Invalid login credentials")
@@ -1104,6 +1106,128 @@ async def test_quick_apply_multipart_rejects_disallowed_url_schemes(client):
     )
     assert res_valid.status_code == 200
     assert res_valid.json()["data"]["resume_url"] == "https://drive.google.com/file/d/valid-cv-multipart/view"
+
+
+@pytest.mark.asyncio
+async def test_file_upload_rejects_spoofed_magic_bytes_and_invalid_extensions(client):
+    # 1. Attacker attempts uploading an executable with a .pdf extension (spoofed MIME)
+    res_spoof = await client.post(
+        "/api/applications/quick-apply-multipart",
+        data={
+            "full_name": "Malicious Uploader",
+            "phone": "+971501119901",
+        },
+        files={"resume": ("malicious.pdf", b"MZ\x90\x00\x03\x00\x00\x00FakePEHeader", "application/pdf")}
+    )
+    assert res_spoof.status_code == 422
+    assert "signature does not match" in res_spoof.json()["detail"].lower()
+
+    # 2. Attacker attempts uploading disallowed extension (.sh, .exe, .html)
+    res_ext = await client.post(
+        "/api/applications/quick-apply-multipart",
+        data={
+            "full_name": "Script Uploader",
+            "phone": "+971501119902",
+        },
+        files={"resume": ("exploit.sh", b"#!/bin/bash\nrm -rf /", "application/x-sh")}
+    )
+    assert res_ext.status_code == 422
+    assert "not permitted" in res_ext.json()["detail"].lower()
+
+    # 3. Attacker attempts uploading an empty file
+    res_empty = await client.post(
+        "/api/applications/quick-apply-multipart",
+        data={
+            "full_name": "Empty Uploader",
+            "phone": "+971501119903",
+        },
+        files={"resume": ("empty.pdf", b"", "application/pdf")}
+    )
+    assert res_empty.status_code == 422
+    assert "empty" in res_empty.json()["detail"].lower()
+
+    # 4. Valid DOCX file upload with PK\x03\x04 zip header succeeds
+    res_docx = await client.post(
+        "/api/applications/quick-apply-multipart",
+        data={
+            "full_name": "DOCX Candidate",
+            "phone": "+971501119904",
+        },
+        files={"resume": ("resume.docx", b"PK\x03\x04\x14\x00FakeDocxZipStream", "application/vnd.openxmlformats-officedocument.wordprocessingml.document")}
+    )
+    assert res_docx.status_code == 200
+    assert res_docx.json()["data"]["resume_source"] == "uploaded_file"
+
+
+@pytest.mark.asyncio
+async def test_file_upload_rejects_oversized_payload(client):
+    from app.core.file_validator import MAX_UPLOAD_SIZE_BYTES
+    # Generate payload exceeding MAX_UPLOAD_SIZE_BYTES (10MB + 1KB) with valid PDF header
+    oversized_bytes = b"%PDF-1.4" + (b"A" * (MAX_UPLOAD_SIZE_BYTES + 1024))
+    res_oversized = await client.post(
+        "/api/applications/quick-apply-multipart",
+        data={
+            "full_name": "Oversized Candidate",
+            "phone": "+971501119905",
+        },
+        files={"resume": ("huge.pdf", oversized_bytes, "application/pdf")}
+    )
+    assert res_oversized.status_code == 413
+    assert "exceeds maximum allowed size" in res_oversized.json()["detail"].lower()
+
+
+@pytest.mark.asyncio
+async def test_file_upload_sanitizes_path_traversal_filenames(client):
+    # Upload with directory traversal and control characters in filename
+    res_traversal = await client.post(
+        "/api/applications/quick-apply-multipart",
+        data={
+            "full_name": "Traversal Candidate",
+            "phone": "+971501119906",
+        },
+        files={"resume": ("../../../../etc/passwd\x00.pdf", b"%PDF-1.4 valid content", "application/pdf")}
+    )
+    assert res_traversal.status_code == 200
+    # Query resumes to verify stored filename is sanitized
+    cand_id = res_traversal.json()["data"]["candidate_id"]
+    resumes_resp = await client.get(f"/api/applications/candidates/{cand_id}/resumes")
+    assert resumes_resp.status_code == 200
+    stored_name = resumes_resp.json()["data"][0]["original_filename"]
+    assert ".." not in stored_name
+    assert "/" not in stored_name
+    assert "\x00" not in stored_name
+    assert stored_name.endswith(".pdf")
+
+
+@pytest.mark.asyncio
+async def test_supporting_document_upload_validates_magic_bytes(client, db_session):
+    application = Application(
+        candidate_id=(await _create_candidate(db_session)).id,
+        application_status=ApplicationStatus.new
+    )
+    db_session.add(application)
+    await db_session.commit()
+    await db_session.refresh(application)
+
+    # Reject executable disguised as passport.pdf
+    res_bad = await client.post(
+        f"/api/applications/{application.id}/documents",
+        data={"document_type": "passport"},
+        files={"file": ("passport.pdf", b"MZThisIsNotAPdf", "application/pdf")}
+    )
+    assert res_bad.status_code == 422
+    assert "signature does not match" in res_bad.json()["detail"].lower()
+
+    # Accept valid image upload (JPEG)
+    res_good = await client.post(
+        f"/api/applications/{application.id}/documents",
+        data={"document_type": "passport"},
+        files={"file": ("passport.jpg", b"\xff\xd8\xff\xe0\x00\x10JFIFValidJpeg", "image/jpeg")}
+    )
+    assert res_good.status_code == 200
+    assert res_good.json()["data"]["document_type"] == "passport"
+
+
 
 
 

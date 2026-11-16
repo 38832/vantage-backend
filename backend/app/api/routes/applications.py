@@ -13,6 +13,7 @@ from app.models.job import Job
 from app.schemas.response import ApiResponse
 from app.schemas.application import CandidateApplicationCreate, CandidateResumeOut
 from app.services.supabase_storage import supabase_storage
+from app.core.file_validator import validate_uploaded_file, MAX_UPLOAD_SIZE_BYTES
 from app.core.logger import log_mutation_details, log_query_details
 
 router = APIRouter()
@@ -234,31 +235,37 @@ async def quick_apply_multipart(
 
     resume_url = None
     if resume and resume.filename:
-        file_bytes = await resume.read()
-        storage_res = await supabase_storage.upload_resume(
+        file_bytes = await resume.read(MAX_UPLOAD_SIZE_BYTES + 1)
+        canonical_mime, safe_filename = validate_uploaded_file(
             file_bytes=file_bytes,
             filename=resume.filename,
+            declared_content_type=resume.content_type,
+            max_size_bytes=MAX_UPLOAD_SIZE_BYTES
+        )
+        storage_res = await supabase_storage.upload_resume(
+            file_bytes=file_bytes,
+            filename=safe_filename,
             application_id=str(application.id),
-            content_type=resume.content_type or "application/pdf"
+            content_type=canonical_mime
         )
         resume_url = storage_res.get("signed_url")
         candidate.resume_url = resume_url
         candidate.has_resume = True
         candidate.resume_source = ResumeSource.uploaded_file
-        candidate.resume_file_name = resume.filename
+        candidate.resume_file_name = safe_filename
         candidate.resume_storage_bucket = storage_res.get("bucket", "candidate-resumes")
         candidate.resume_storage_path = storage_res.get("storage_path", "")
-        candidate.resume_mime_type = resume.content_type
+        candidate.resume_mime_type = canonical_mime
         candidate.resume_file_size_bytes = len(file_bytes)
         candidate.resume_uploaded_at = datetime.utcnow()
 
         # Add to candidate_resumes table
         cand_resume = CandidateResume(
             candidate_id=candidate.id,
-            original_filename=resume.filename,
+            original_filename=safe_filename,
             storage_bucket=storage_res.get("bucket", "candidate-resumes"),
             storage_path=storage_res.get("storage_path", ""),
-            mime_type=resume.content_type or "application/pdf",
+            mime_type=canonical_mime,
             file_size_bytes=len(file_bytes),
             source=ResumeSource.uploaded_file,
             drive_link=None,
@@ -272,10 +279,10 @@ async def quick_apply_multipart(
             application_id=application.id,
             candidate_id=candidate.id,
             document_type="resume",
-            original_filename=resume.filename,
+            original_filename=safe_filename,
             storage_bucket=storage_res.get("bucket", "candidate-resumes"),
             storage_path=storage_res.get("storage_path", ""),
-            mime_type=resume.content_type,
+            mime_type=canonical_mime,
             file_size_bytes=len(file_bytes)
         )
         db.add(doc)
@@ -380,22 +387,28 @@ async def upload_application_document(
     if not application:
         raise HTTPException(status_code=404, detail="Application not found")
 
-    file_bytes = await file.read()
-    storage_res = await supabase_storage.upload_resume(
+    file_bytes = await file.read(MAX_UPLOAD_SIZE_BYTES + 1)
+    canonical_mime, safe_filename = validate_uploaded_file(
         file_bytes=file_bytes,
         filename=file.filename,
+        declared_content_type=file.content_type,
+        max_size_bytes=MAX_UPLOAD_SIZE_BYTES
+    )
+    storage_res = await supabase_storage.upload_resume(
+        file_bytes=file_bytes,
+        filename=safe_filename,
         application_id=str(application_id),
-        content_type=file.content_type or "application/octet-stream"
+        content_type=canonical_mime
     )
 
     doc = ApplicationDocument(
         application_id=application.id,
         candidate_id=application.candidate_id,
         document_type=document_type,
-        original_filename=file.filename,
+        original_filename=safe_filename,
         storage_bucket=storage_res.get("bucket", "candidate-resumes"),
         storage_path=storage_res.get("storage_path", ""),
-        mime_type=file.content_type,
+        mime_type=canonical_mime,
         file_size_bytes=len(file_bytes)
     )
     db.add(doc)
@@ -410,7 +423,7 @@ async def upload_application_document(
             "application_id": str(application_id),
             "candidate_id": str(application.candidate_id),
             "document_type": document_type,
-            "filename": file.filename,
+            "filename": safe_filename,
             "storage_path": storage_res.get("storage_path"),
             "file_size_bytes": len(file_bytes)
         }
