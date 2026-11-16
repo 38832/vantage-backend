@@ -43,6 +43,50 @@ app.add_middleware(
 )
 
 
+# ---------------------------------------------------------------------------
+# SEC-08: Security Headers Middleware
+# Injects defense-in-depth HTTP headers on every response to prevent
+# clickjacking, MIME sniffing, XSS, and other browser-based attacks.
+# ---------------------------------------------------------------------------
+_SECURITY_HEADERS = {
+    "X-Frame-Options": "DENY",
+    "X-Content-Type-Options": "nosniff",
+    # Disable legacy XSS auditor — modern browsers rely on CSP instead
+    "X-XSS-Protection": "0",
+    "Referrer-Policy": "strict-origin-when-cross-origin",
+    "Permissions-Policy": "camera=(), microphone=(), geolocation=(), payment=()",
+    # CSP for an API backend: restrictive default; no inline scripts needed.
+    "Content-Security-Policy": (
+        "default-src 'self'; "
+        "script-src 'self'; "
+        "style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: https:; "
+        "font-src 'self' https:; "
+        "connect-src 'self' https://vantage-backend-2b7h.onrender.com; "
+        "frame-ancestors 'none'; "
+        "base-uri 'self'; "
+        "form-action 'self'"
+    ),
+}
+
+# HSTS is only safe when every sub-domain truly supports TLS.
+# Enabled conditionally so local dev over plain HTTP is not broken.
+_is_production = settings.environment.lower() in {"production", "prod", "staging"}
+
+
+@app.middleware("http")
+async def security_headers_middleware(request: Request, call_next):
+    """Attach SEC-08 hardening headers to every HTTP response."""
+    response = await call_next(request)
+    for header_name, header_value in _SECURITY_HEADERS.items():
+        response.headers[header_name] = header_value
+    if _is_production:
+        response.headers["Strict-Transport-Security"] = (
+            "max-age=63072000; includeSubDomains; preload"
+        )
+    return response
+
+
 @app.middleware("http")
 async def detailed_terminal_logging_middleware(request: Request, call_next):
     """

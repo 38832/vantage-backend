@@ -1322,6 +1322,49 @@ def test_production_secrets_validation():
     assert prod_settings.environment == "production"
 
 
+# ---------------------------------------------------------------------------
+# SEC-08: Security Headers & CSP
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_security_headers_present_on_every_response(client):
+    """SEC-08: Every API response must include defense-in-depth headers."""
+    response = await client.get("/api/health")
+    assert response.status_code == 200
+
+    # Clickjacking prevention
+    assert response.headers["x-frame-options"] == "DENY"
+    # MIME-sniff prevention
+    assert response.headers["x-content-type-options"] == "nosniff"
+    # Legacy XSS auditor disabled (rely on CSP)
+    assert response.headers["x-xss-protection"] == "0"
+    # Referrer policy
+    assert response.headers["referrer-policy"] == "strict-origin-when-cross-origin"
+    # Permissions policy blocks sensitive APIs
+    assert "camera=()" in response.headers["permissions-policy"]
+    assert "microphone=()" in response.headers["permissions-policy"]
+    # Content-Security-Policy present and restrictive
+    csp = response.headers["content-security-policy"]
+    assert "default-src 'self'" in csp
+    assert "frame-ancestors 'none'" in csp
+
+
+@pytest.mark.asyncio
+async def test_security_headers_on_error_responses(unauthenticated_client):
+    """SEC-08: Security headers must be present even on 401/404 error responses."""
+    # 401 — admin route without token
+    res_401 = await unauthenticated_client.get("/api/admin/ats/applications")
+    assert res_401.status_code == 401
+    assert res_401.headers["x-frame-options"] == "DENY"
+    assert res_401.headers["x-content-type-options"] == "nosniff"
+
+    # 404 — non-existent route
+    res_404 = await unauthenticated_client.get(f"/api/jobs/{uuid.uuid4()}")
+    assert res_404.status_code == 404
+    assert res_404.headers["x-frame-options"] == "DENY"
+    assert "content-security-policy" in res_404.headers
+
+
 
 
 
