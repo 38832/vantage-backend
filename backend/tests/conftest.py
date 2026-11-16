@@ -8,7 +8,16 @@ from app.db.base import Base
 from app.main import app as fastapi_app
 from app.api.deps import get_db
 from app.core.auth import create_access_token
+from app.core.rate_limiter import public_submission_limiter
 import app.models  # Register all models
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def reset_rate_limiter():
+    public_submission_limiter.reset()
+    yield
+    public_submission_limiter.reset()
 
 
 @compiles(ARRAY, "sqlite")

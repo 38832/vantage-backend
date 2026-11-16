@@ -1,7 +1,7 @@
 import uuid
 from datetime import datetime
 from typing import Optional, List
-from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status
+from fastapi import APIRouter, Depends, UploadFile, File, Form, HTTPException, status, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -14,6 +14,7 @@ from app.schemas.response import ApiResponse
 from app.schemas.application import CandidateApplicationCreate, CandidateResumeOut
 from app.services.supabase_storage import supabase_storage
 from app.core.file_validator import validate_uploaded_file, MAX_UPLOAD_SIZE_BYTES
+from app.core.rate_limiter import public_submission_limiter
 from app.core.logger import log_mutation_details, log_query_details
 
 router = APIRouter()
@@ -21,11 +22,13 @@ router = APIRouter()
 @router.post("/applications/quick-apply")
 async def quick_apply(
     payload: CandidateApplicationCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Standard JSON candidate quick-apply route supporting Drive links and external URLs
     """
+    await public_submission_limiter.check_rate_limit(request)
     # Verify job if provided
     if payload.job_id:
         job_check = await db.execute(select(Job.id).where(Job.id == payload.job_id))
@@ -153,6 +156,7 @@ async def quick_apply(
 
 @router.post("/applications/quick-apply-multipart")
 async def quick_apply_multipart(
+    request: Request,
     full_name: str = Form(...),
     phone: str = Form(...),
     email: Optional[str] = Form(None),
@@ -181,6 +185,7 @@ async def quick_apply_multipart(
     """
     Multipart quick-apply route accepting direct PDF/DOCX file upload to Supabase Storage or external drive link
     """
+    await public_submission_limiter.check_rate_limit(request)
     job_uuid = None
     if job_id:
         try:
@@ -374,6 +379,7 @@ async def get_candidate_resumes(
 @router.post("/applications/{application_id}/documents")
 async def upload_application_document(
     application_id: uuid.UUID,
+    request: Request,
     document_type: str = Form("resume"),
     file: UploadFile = File(...),
     db: AsyncSession = Depends(get_db)
@@ -381,6 +387,7 @@ async def upload_application_document(
     """
     Upload supporting document (passport copy, medical clearance, trade certification)
     """
+    await public_submission_limiter.check_rate_limit(request)
     app_query = select(Application).where(Application.id == application_id)
     app_res = await db.execute(app_query)
     application = app_res.scalar_one_or_none()

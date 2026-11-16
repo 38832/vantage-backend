@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
@@ -8,6 +8,7 @@ from app.models.inquiry import EmployerInquiry
 from app.models.service_request import ServiceRequest
 from app.schemas.response import ApiResponse
 from app.schemas.inquiry import EmployerInquiryCreate, ServiceRequestCreate
+from app.core.rate_limiter import public_submission_limiter
 from app.core.logger import log_mutation_details
 
 router = APIRouter()
@@ -15,11 +16,13 @@ router = APIRouter()
 @router.post("/inquiries/employer")
 async def create_employer_inquiry(
     payload: EmployerInquiryCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Inbound Employer Manpower Request
     """
+    await public_submission_limiter.check_rate_limit(request)
     # Link or register employer company
     emp_query = select(Employer).where(Employer.email == payload.email)
     emp_res = await db.execute(emp_query)
@@ -90,12 +93,14 @@ async def create_employer_inquiry(
 @router.post("/inquiries/service")
 async def create_service_request(
     payload: ServiceRequestCreate,
+    request: Request,
     db: AsyncSession = Depends(get_db)
 ):
     """
     Dedicated Service Request CTA (Recruitment, Visa processing, GAMCA Medical/Documentation, Mobilization)
     """
-    request = ServiceRequest(
+    await public_submission_limiter.check_rate_limit(request)
+    request_obj = ServiceRequest(
         service_type=payload.service_type,
         company_name=payload.company_name,
         contact_name=payload.contact_name,
@@ -105,24 +110,24 @@ async def create_service_request(
         notes=payload.notes,
         source="website"
     )
-    db.add(request)
+    db.add(request_obj)
     await db.commit()
-    await db.refresh(request)
+    await db.refresh(request_obj)
 
     log_mutation_details(
         entity_name="ServiceRequest",
-        entity_id=request.id,
+        entity_id=request_obj.id,
         operation="INSERT",
         changes={
-            "service_type": request.service_type,
-            "contact_name": request.contact_name,
-            "company": request.company_name,
-            "city": request.city
+            "service_type": request_obj.service_type,
+            "contact_name": request_obj.contact_name,
+            "company": request_obj.company_name,
+            "city": request_obj.city
         }
     )
 
     return ApiResponse.ok({
-        "id": str(request.id),
+        "id": str(request_obj.id),
         "service_type": payload.service_type,
         "status": "received",
         "message": f"Service request for '{payload.service_type}' logged successfully."

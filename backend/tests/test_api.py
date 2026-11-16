@@ -1228,6 +1228,67 @@ async def test_supporting_document_upload_validates_magic_bytes(client, db_sessi
     assert res_good.json()["data"]["document_type"] == "passport"
 
 
+@pytest.mark.asyncio
+async def test_public_api_rate_limiting_enforcement(client):
+    from app.core.rate_limiter import public_submission_limiter
+
+    # Reset limiter for test isolation
+    public_submission_limiter.reset()
+
+    # 1. First 10 requests within window succeed
+    for i in range(10):
+        res = await client.post(
+            "/api/inquiries/service",
+            json={
+                "service_type": "Recruitment",
+                "company_name": f"Test Corp {i}",
+                "contact_name": "Test Contact",
+                "email": f"test{i}@example.com",
+                "phone": "+971501110000",
+            },
+            headers={"X-Forwarded-For": "203.0.113.195"}
+        )
+        assert res.status_code == 200, f"Request {i+1} should succeed"
+
+    # 2. 11th request from the same IP is blocked with HTTP 429 and Retry-After header
+    res_blocked = await client.post(
+        "/api/inquiries/service",
+        json={
+            "service_type": "Recruitment",
+            "company_name": "Spam Corp",
+            "contact_name": "Spammer",
+            "email": "spam@example.com",
+            "phone": "+971501110000",
+        },
+        headers={"X-Forwarded-For": "203.0.113.195"}
+    )
+    assert res_blocked.status_code == 429
+    assert "too many requests" in res_blocked.json()["detail"].lower()
+    assert "retry-after" in res_blocked.headers
+
+    # 3. A different IP address is NOT affected by the first IP's rate limit
+    res_other_ip = await client.post(
+        "/api/inquiries/service",
+        json={
+            "service_type": "Recruitment",
+            "company_name": "Innocent Corp",
+            "contact_name": "Legit Contact",
+            "email": "legit@example.com",
+            "phone": "+971501110001",
+        },
+        headers={"X-Forwarded-For": "198.51.100.42"}
+    )
+    assert res_other_ip.status_code == 200
+
+    # 4. Unit validation for IP parsing and LRU bounded cache
+    from app.core.rate_limiter import InMemoryRateLimiter
+    bounded_limiter = InMemoryRateLimiter(requests_limit=2, window_seconds=60, max_tracked_ips=2)
+    assert bounded_limiter._is_valid_ip("198.51.100.42") is True
+    assert bounded_limiter._is_valid_ip("invalid-ip-string") is False
+    assert bounded_limiter._is_valid_ip("1.2.3.4.5") is False
+
+
+
 
 
 
