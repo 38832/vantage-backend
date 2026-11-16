@@ -1,6 +1,6 @@
 import secrets
 from typing import List
-from pydantic import Field
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings
 
 class Settings(BaseSettings):
@@ -37,6 +37,31 @@ class Settings(BaseSettings):
     # Set to True to print full request/response bodies, sorting criteria, and mutation diffs in terminal
     enable_detailed_logs: bool = True
     log_payload_max_bytes: int = 25000
+
+    @model_validator(mode="after")
+    def validate_production_secrets(self) -> "Settings":
+        weak_placeholders = {
+            "secret",
+            "jwt-secret",
+            "secret-key-change-me",
+            "replace-with-a-long-random-secret",
+            "replace-with-a-random-secret",
+            "your-service-role-key",
+            "changeme",
+            "admin",
+            "password",
+        }
+        if self.jwt_secret and self.jwt_secret.strip().lower() in weak_placeholders:
+            raise ValueError(f"JWT_SECRET cannot be a known default placeholder: '{self.jwt_secret}'")
+
+        if (self.environment or "").lower() == "production":
+            if not self.jwt_secret or len(self.jwt_secret) < 32:
+                raise ValueError("In production, JWT_SECRET must be configured with at least 32 characters.")
+            if not self.secret_key or self.secret_key.strip().lower() in weak_placeholders:
+                raise ValueError("In production, SECRET_KEY must be configured with a strong non-default value.")
+            if self.supabase_service_role_key and self.supabase_service_role_key.strip().lower() in weak_placeholders:
+                raise ValueError("In production, SUPABASE_SERVICE_ROLE_KEY cannot use an example placeholder value.")
+        return self
 
     @property
     def cors_origins(self) -> List[str]:

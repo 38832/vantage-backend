@@ -1288,6 +1288,40 @@ async def test_public_api_rate_limiting_enforcement(client):
     assert bounded_limiter._is_valid_ip("1.2.3.4.5") is False
 
 
+def test_production_secrets_validation():
+    from app.core.config import Settings
+    from pydantic import ValidationError
+
+    # 1. Rejects weak placeholder JWT secret even in development
+    with pytest.raises(ValidationError, match="JWT_SECRET cannot be a known default placeholder"):
+        Settings(jwt_secret="replace-with-a-long-random-secret")
+
+    # 2. In production, rejects short or default secrets
+    with pytest.raises(ValidationError, match="In production, SECRET_KEY must be configured"):
+        Settings(
+            environment="production",
+            jwt_secret="a_sufficiently_long_random_jwt_secret_value_12345",
+            secret_key="secret-key-change-me"
+        )
+
+    # 3. In production, rejects short JWT secret (< 32 chars)
+    with pytest.raises(ValidationError, match="at least 32 characters"):
+        Settings(
+            environment="production",
+            jwt_secret="too_short_secret",
+            secret_key="a_strong_production_secret_key_value"
+        )
+
+    # 4. Valid strong production configuration succeeds
+    prod_settings = Settings(
+        environment="production",
+        jwt_secret="a_cryptographically_strong_production_jwt_secret_value_with_high_entropy_12345",
+        secret_key="a_cryptographically_strong_production_session_secret_key_12345",
+        supabase_service_role_key="eyJh_valid_service_role_key_value"
+    )
+    assert prod_settings.environment == "production"
+
+
 
 
 
