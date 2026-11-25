@@ -313,6 +313,10 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
   const [applications, setApplications] = useState<ATSApplication[]>(INITIAL_APPLICATIONS);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
+  const [tradeFilter, setTradeFilter] = useState('');
+  const [minExperienceFilter, setMinExperienceFilter] = useState('');
+  const [destinationFilter, setDestinationFilter] = useState('');
+  const [passportFilter, setPassportFilter] = useState('');
   const [selectedApp, setSelectedApp] = useState<ATSApplication | null>(INITIAL_APPLICATIONS[0]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkStatusTarget, setBulkStatusTarget] = useState<string>('shortlisted');
@@ -669,16 +673,61 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
     }
   };
 
+  const getAppExperienceYears = (app: ATSApplication): number => {
+    if (typeof app.experience_years === 'number') return app.experience_years;
+    if (typeof app.years_experience === 'number') return app.years_experience;
+    const match = String(app.experience || '').match(/\d+/);
+    return match ? parseInt(match[0], 10) : 0;
+  };
+
+  const resetFilters = () => {
+    setStatusFilter('all');
+    setSearchQuery('');
+    setTradeFilter('');
+    setMinExperienceFilter('');
+    setDestinationFilter('');
+    setPassportFilter('');
+  };
+
   const filteredApps = applications.filter(app => {
     const appStatus = app.application_status || app.status || 'new';
     if (statusFilter !== 'all' && appStatus !== statusFilter) return false;
+
+    const roleText = (app.target_trade || app.candidate_job_title || app.candidate_role || app.trade || app.job_title || '').toLowerCase();
+    const destText = (app.destination || app.destination_country || app.location_country || '').toLowerCase();
+    const passText = (app.passport_status || app.passport || '').toLowerCase();
+
+    if (tradeFilter.trim() && !roleText.includes(tradeFilter.trim().toLowerCase())) return false;
+
+    if (minExperienceFilter !== '') {
+      const minExp = parseInt(minExperienceFilter, 10);
+      if (getAppExperienceYears(app) < minExp) return false;
+    }
+
+    if (destinationFilter) {
+      const targetDest = destinationFilter.toLowerCase();
+      if (targetDest === 'united arab emirates') {
+        if (!destText.includes('united arab emirates') && !destText.includes('uae') && !destText.includes('dubai')) return false;
+      } else if (!destText.includes(targetDest)) {
+        return false;
+      }
+    }
+
+    if (passportFilter) {
+      if (passportFilter === 'ecnr_ready') {
+        if (!passText.includes('ecnr') && !passText.includes('ready') && !passText.includes('valid')) return false;
+      } else if (passportFilter === 'ecr') {
+        if (!passText.includes('ecr') || passText.includes('ecnr')) return false;
+      } else if (passportFilter === 'renewal') {
+        if (!passText.includes('renew')) return false;
+      }
+    }
+
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
       const name = (app.candidate_name || app.name || app.full_name || '').toLowerCase();
-      const role = (app.target_trade || app.candidate_job_title || app.candidate_role || app.trade || app.job_title || '').toLowerCase();
       const phone = (app.candidate_phone || app.phone || '').toLowerCase();
-      const dest = (app.destination || app.destination_country || app.location_country || '').toLowerCase();
-      return name.includes(q) || role.includes(q) || phone.includes(q) || dest.includes(q);
+      return name.includes(q) || roleText.includes(q) || phone.includes(q) || destText.includes(q);
     }
     return true;
   });
@@ -1003,38 +1052,103 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
         </div>
       </div>
 
-      {/* Pipeline Filter Bar */}
-      <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
-          {[
-            { id: 'all', label: `All (${applications.length})` },
-            { id: 'new', label: 'New Review' },
-            { id: 'shortlisted', label: 'Shortlisted' },
-            { id: 'interview_scheduled', label: 'Interviews' },
-            { id: 'visa_pending', label: 'Visa Pending' },
-            { id: 'hired', label: 'Hired' }
-          ].map(tab => (
-            <button
-              key={tab.id}
-              onClick={() => setStatusFilter(tab.id)}
-              className={`px-3 py-1.5 rounded-lg transition ${
-                statusFilter === tab.id ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-800 text-slate-400 hover:text-white'
-              }`}
-            >
-              {tab.label}
-            </button>
-          ))}
+      {/* Pipeline Filter Bar & Multi-Criteria Advanced Filters */}
+      <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-3">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="flex flex-wrap items-center gap-1.5 text-xs font-semibold">
+            {[
+              { id: 'all', label: `All (${applications.length})` },
+              { id: 'new', label: 'New Review' },
+              { id: 'shortlisted', label: 'Shortlisted' },
+              { id: 'interview_scheduled', label: 'Interviews' },
+              { id: 'visa_pending', label: 'Visa Pending' },
+              { id: 'hired', label: 'Hired' }
+            ].map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setStatusFilter(tab.id)}
+                className={`px-3 py-1.5 rounded-lg transition ${
+                  statusFilter === tab.id ? 'bg-amber-500 text-slate-950 font-bold' : 'bg-slate-800 text-slate-400 hover:text-white'
+                }`}
+              >
+                {tab.label}
+              </button>
+            ))}
+          </div>
+
+          <div className="relative w-full md:w-80">
+            <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+            <input
+              type="text"
+              placeholder="Search candidate name, trade, destination, phone..."
+              value={searchQuery}
+              onChange={e => setSearchQuery(e.target.value)}
+              className="w-full pl-9 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-xs focus:outline-none focus:border-amber-500"
+            />
+          </div>
         </div>
 
-        <div className="relative w-full md:w-80">
-          <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+        <div className="pt-3 border-t border-slate-800 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-2.5 text-xs">
           <input
             type="text"
-            placeholder="Search candidate name, trade, destination, phone..."
-            value={searchQuery}
-            onChange={e => setSearchQuery(e.target.value)}
-            className="w-full pl-9 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-xs focus:outline-none focus:border-amber-500"
+            aria-label="Filter by trade or skill"
+            placeholder="Trade / skill (e.g. Welder, HVAC)..."
+            value={tradeFilter}
+            onChange={e => setTradeFilter(e.target.value)}
+            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500"
           />
+          <select
+            aria-label="Filter by minimum experience"
+            value={minExperienceFilter}
+            onChange={e => setMinExperienceFilter(e.target.value)}
+            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500"
+          >
+            <option value="">Min Experience: Any</option>
+            <option value="1">1+ Years</option>
+            <option value="3">3+ Years</option>
+            <option value="5">5+ Years</option>
+            <option value="8">8+ Years</option>
+            <option value="10">10+ Years</option>
+          </select>
+          <select
+            aria-label="Filter by destination"
+            value={destinationFilter}
+            onChange={e => setDestinationFilter(e.target.value)}
+            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500"
+          >
+            <option value="">All Destinations</option>
+            <option value="Saudi Arabia">Saudi Arabia</option>
+            <option value="United Arab Emirates">UAE / Dubai</option>
+            <option value="Qatar">Qatar</option>
+            <option value="Oman">Oman</option>
+            <option value="Kuwait">Kuwait</option>
+            <option value="India">India</option>
+          </select>
+          <select
+            aria-label="Filter by passport status"
+            value={passportFilter}
+            onChange={e => setPassportFilter(e.target.value)}
+            className="bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-white text-xs focus:outline-none focus:border-amber-500"
+          >
+            <option value="">All Passports</option>
+            <option value="ecnr_ready">ECNR / Ready</option>
+            <option value="ecr">ECR</option>
+            <option value="renewal">In Renewal</option>
+          </select>
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-[11px] text-slate-400">
+              {filteredApps.length} / {applications.length} shown
+            </span>
+            {(statusFilter !== 'all' || searchQuery || tradeFilter || minExperienceFilter || destinationFilter || passportFilter) && (
+              <button
+                type="button"
+                onClick={resetFilters}
+                className="px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-400 border border-amber-500/30 text-xs font-bold transition"
+              >
+                Reset
+              </button>
+            )}
+          </div>
         </div>
       </div>
 

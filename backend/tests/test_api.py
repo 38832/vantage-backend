@@ -601,6 +601,83 @@ async def test_ats_export_unauthenticated_returns_401(unauthenticated_client):
 
 
 @pytest.mark.asyncio
+async def test_ats_multi_criteria_filters(client, db_session):
+    from app.models.candidate import Candidate
+
+    c1 = Candidate(
+        full_name="Arif Welder KSA",
+        phone="+919800000001",
+        current_job_title="6G Pipe Welder",
+        preferred_country="Saudi Arabia",
+        years_experience=7,
+        passport_status="ready",
+    )
+    c2 = Candidate(
+        full_name="Ravi Welder Junior",
+        phone="+919800000002",
+        current_job_title="6G Pipe Welder",
+        preferred_country="UAE",
+        years_experience=2,
+        passport_status="ecr",
+    )
+    c3 = Candidate(
+        full_name="Suresh HVAC KSA",
+        phone="+919800000003",
+        current_job_title="HVAC Technician",
+        preferred_country="Saudi Arabia",
+        years_experience=8,
+        passport_status="ready",
+    )
+    db_session.add_all([c1, c2, c3])
+    await db_session.commit()
+    for cand in (c1, c2, c3):
+        await db_session.refresh(cand)
+
+    db_session.add_all([
+        Application(candidate_id=c1.id, application_status=ApplicationStatus.new),
+        Application(candidate_id=c2.id, application_status=ApplicationStatus.new),
+        Application(candidate_id=c3.id, application_status=ApplicationStatus.shortlisted),
+    ])
+    await db_session.commit()
+
+    # Filter by trade + min_experience + destination + passport_status
+    res = await client.get(
+        "/api/admin/ats/applications?trade=Welder&min_experience=5&destination=Saudi Arabia&passport_status=ready"
+    )
+    assert res.status_code == 200
+    data = res.json()["data"]
+    assert len(data) == 1
+    assert data[0]["candidate_name"] == "Arif Welder KSA"
+
+    # Filter by min_experience=5 & destination=Saudi Arabia (matches c1 and c3)
+    res_exp = await client.get("/api/admin/ats/applications?min_experience=5&destination=Saudi Arabia")
+    assert res_exp.status_code == 200
+    assert len(res_exp.json()["data"]) == 2
+
+    # Filter by passport_status=ecr (matches c2)
+    res_ecr = await client.get("/api/admin/ats/applications?passport_status=ecr")
+    assert res_ecr.status_code == 200
+    ecr_data = res_ecr.json()["data"]
+    assert len(ecr_data) == 1
+    assert ecr_data[0]["candidate_name"] == "Ravi Welder Junior"
+
+    # Export respects multi-criteria filters
+    res_export = await client.get(
+        "/api/admin/ats/applications/export?format=csv&trade=HVAC&min_experience=5"
+    )
+    assert res_export.status_code == 200
+    export_lines = [line for line in res_export.text.strip().splitlines() if line]
+    assert len(export_lines) == 2
+    assert "Suresh HVAC KSA" in export_lines[1]
+
+
+@pytest.mark.asyncio
+async def test_ats_negative_min_experience_returns_422(client):
+    response = await client.get("/api/admin/ats/applications?min_experience=-1")
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_add_ats_note(client, db_session):
     candidate = await _create_candidate(db_session)
     application = Application(candidate_id=candidate.id)

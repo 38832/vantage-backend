@@ -110,6 +110,10 @@ def _build_ats_filter_conditions(
     recruiter_assigned: Optional[str] = None,
     search: Optional[str] = None,
     application_ids: Optional[List[uuid.UUID]] = None,
+    trade: Optional[str] = None,
+    min_experience: Optional[int] = None,
+    destination: Optional[str] = None,
+    passport_status: Optional[str] = None,
 ):
     conditions = []
     applied_filters = []
@@ -125,6 +129,38 @@ def _build_ats_filter_conditions(
     if recruiter_assigned:
         conditions.append(func.lower(Application.recruiter_assigned) == recruiter_assigned.lower())
         applied_filters.append(f"recruiter = '{recruiter_assigned}'")
+
+    if trade and trade.strip():
+        trade_term = f"%{trade.strip().lower()}%"
+        conditions.append(
+            or_(
+                func.lower(Candidate.current_job_title).like(trade_term),
+                func.lower(Candidate.preferred_job_category).like(trade_term),
+                func.lower(Job.title).like(trade_term),
+            )
+        )
+        applied_filters.append(f"trade LIKE '{trade.strip()}'")
+
+    if min_experience is not None:
+        conditions.append(func.coalesce(Candidate.years_experience, 0) >= min_experience)
+        applied_filters.append(f"years_experience >= {min_experience}")
+
+    if destination and destination.strip():
+        dest_term = f"%{destination.strip().lower()}%"
+        conditions.append(
+            or_(
+                func.lower(Job.location_country).like(dest_term),
+                func.lower(Job.location_city).like(dest_term),
+                func.lower(Candidate.preferred_country).like(dest_term),
+                func.lower(Candidate.preferred_city).like(dest_term),
+            )
+        )
+        applied_filters.append(f"destination LIKE '{destination.strip()}'")
+
+    if passport_status and passport_status.strip():
+        pass_term = f"%{passport_status.strip().lower()}%"
+        conditions.append(func.lower(func.coalesce(Candidate.passport_status, "")).like(pass_term))
+        applied_filters.append(f"passport_status LIKE '{passport_status.strip()}'")
 
     if search:
         search_term = f"%{search.lower()}%"
@@ -236,6 +272,10 @@ async def export_ats_applications(
     status_filter: Optional[ApplicationStatus] = Query(None, alias="status"),
     recruiter_assigned: Optional[str] = Query(None),
     search: Optional[str] = Query(None),
+    trade: Optional[str] = Query(None),
+    min_experience: Optional[int] = Query(None, ge=0),
+    destination: Optional[str] = Query(None),
+    passport_status: Optional[str] = Query(None),
     application_ids: Optional[List[uuid.UUID]] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -247,6 +287,10 @@ async def export_ats_applications(
         recruiter_assigned=recruiter_assigned,
         search=search,
         application_ids=application_ids,
+        trade=trade,
+        min_experience=min_experience,
+        destination=destination,
+        passport_status=passport_status,
     )
 
     query = (
@@ -299,6 +343,10 @@ async def list_ats_applications(
     status_filter: Optional[ApplicationStatus] = Query(None, alias="status"),
     recruiter_assigned: Optional[str] = Query(None),
     search: Optional[str] = Query(None, description="Search candidate name, phone, or job title"),
+    trade: Optional[str] = Query(None, description="Filter by trade or skill keyword"),
+    min_experience: Optional[int] = Query(None, ge=0, description="Minimum years of experience"),
+    destination: Optional[str] = Query(None, description="Filter by target destination country or city"),
+    passport_status: Optional[str] = Query(None, description="Filter by passport readiness (ready, ecr, renewal, none)"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db)
@@ -310,6 +358,10 @@ async def list_ats_applications(
         status_filter=status_filter,
         recruiter_assigned=recruiter_assigned,
         search=search,
+        trade=trade,
+        min_experience=min_experience,
+        destination=destination,
+        passport_status=passport_status,
     )
 
     base_query = (
