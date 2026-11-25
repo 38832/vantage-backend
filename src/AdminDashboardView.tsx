@@ -727,9 +727,22 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
 
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
-      const name = (app.candidate_name || app.name || app.full_name || '').toLowerCase();
-      const phone = (app.candidate_phone || app.phone || '').toLowerCase();
-      return name.includes(q) || roleText.includes(q) || phone.includes(q) || destText.includes(q);
+      const hay = [
+        app.candidate_name,
+        app.name,
+        app.full_name,
+        app.candidate_phone,
+        app.phone,
+        app.candidate_email,
+        app.email,
+        roleText,
+        app.company_name,
+        destText,
+        app.interview_notes,
+        app.notes,
+        app.recruiter_assigned,
+      ].filter(Boolean).join(' ').toLowerCase();
+      return hay.includes(q);
     }
     return true;
   }).sort((a, b) => {
@@ -1103,7 +1116,7 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
             <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
             <input
               type="text"
-              placeholder="Search candidate name, trade, destination, phone..."
+              placeholder="Search name, company, skill, remarks, phone..."
               value={searchQuery}
               onChange={e => setSearchQuery(e.target.value)}
               className="w-full pl-9 pr-3 py-1.5 bg-slate-800 border border-slate-700 rounded-lg text-white text-xs focus:outline-none focus:border-amber-500"

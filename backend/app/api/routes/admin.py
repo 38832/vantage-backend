@@ -6,7 +6,7 @@ from typing import Optional, List, Literal
 from xml.sax.saxutils import escape as xml_escape
 from fastapi import APIRouter, Depends, Query, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, or_, and_, update, delete
+from sqlalchemy import select, func, or_, and_, update, delete, exists
 from sqlalchemy.orm import selectinload
 
 from pydantic import BaseModel
@@ -162,17 +162,36 @@ def _build_ats_filter_conditions(
         conditions.append(func.lower(func.coalesce(Candidate.passport_status, "")).like(pass_term))
         applied_filters.append(f"passport_status LIKE '{passport_status.strip()}'")
 
-    if search:
-        search_term = f"%{search.lower()}%"
+    if search and search.strip():
+        search_term = f"%{search.strip().lower()}%"
         conditions.append(
             or_(
-                func.lower(Candidate.full_name).like(search_term),
-                func.lower(Candidate.phone).like(search_term),
-                func.lower(Candidate.current_job_title).like(search_term),
-                func.lower(Job.title).like(search_term)
+                func.lower(func.coalesce(Candidate.full_name, "")).like(search_term),
+                func.lower(func.coalesce(Candidate.phone, "")).like(search_term),
+                func.lower(func.coalesce(Candidate.whatsapp, "")).like(search_term),
+                func.lower(func.coalesce(Candidate.email, "")).like(search_term),
+                func.lower(func.coalesce(Candidate.current_job_title, "")).like(search_term),
+                func.lower(func.coalesce(Candidate.preferred_job_category, "")).like(search_term),
+                func.lower(func.coalesce(Candidate.cover_letter, "")).like(search_term),
+                func.lower(func.coalesce(Candidate.nationality, "")).like(search_term),
+                func.lower(func.coalesce(Candidate.current_city, "")).like(search_term),
+                func.lower(func.coalesce(Candidate.current_country, "")).like(search_term),
+                func.lower(func.coalesce(Candidate.preferred_city, "")).like(search_term),
+                func.lower(func.coalesce(Candidate.preferred_country, "")).like(search_term),
+                func.lower(func.coalesce(Job.title, "")).like(search_term),
+                func.lower(func.coalesce(Job.company_name, "")).like(search_term),
+                func.lower(func.coalesce(Application.interview_notes, "")).like(search_term),
+                func.lower(func.coalesce(Application.notes, "")).like(search_term),
+                func.lower(func.coalesce(Application.recruiter_assigned, "")).like(search_term),
+                exists().where(
+                    and_(
+                        ATSNote.application_id == Application.id,
+                        func.lower(ATSNote.note).like(search_term),
+                    )
+                ),
             )
         )
-        applied_filters.append(f"search LIKE '{search}' (name/phone/title)")
+        applied_filters.append(f"profile search LIKE '{search.strip()}' (name/company/skills/remarks)")
 
     return conditions, applied_filters
 

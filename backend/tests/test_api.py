@@ -733,6 +733,78 @@ async def test_ats_invalid_sort_by_returns_422(client):
 
 
 @pytest.mark.asyncio
+async def test_ats_comprehensive_profile_keyword_search(client, db_session):
+    from app.models.candidate import Candidate
+    from app.models.ats_note import ATSNote
+
+    category = await seed_category(db_session)
+    job = await seed_job(db_session, category)
+    job.company_name = "Al-Bawani Contracting"
+    await db_session.commit()
+    await db_session.refresh(job)
+
+    c1 = Candidate(
+        full_name="Imran Profile",
+        phone="+919800000021",
+        cover_letter="Worked 6 years at Saudi Aramco Ras Tanura refinery",
+    )
+    c2 = Candidate(
+        full_name="Karan Remarks",
+        phone="+919800000022",
+        current_job_title="Pipe Fabricator",
+    )
+    c3 = Candidate(
+        full_name="Nadeem AuditNote",
+        phone="+919800000023",
+        current_job_title="Civil Foreman",
+    )
+    db_session.add_all([c1, c2, c3])
+    await db_session.commit()
+    for cand in (c1, c2, c3):
+        await db_session.refresh(cand)
+
+    app1 = Application(candidate_id=c1.id, application_status=ApplicationStatus.new)
+    app2 = Application(
+        candidate_id=c2.id,
+        job_id=job.id,
+        application_status=ApplicationStatus.shortlisted,
+        interview_notes="Certified TIG Argon specialist",
+    )
+    app3 = Application(candidate_id=c3.id, application_status=ApplicationStatus.contacted)
+    db_session.add_all([app1, app2, app3])
+    await db_session.commit()
+    await db_session.refresh(app3)
+
+    note = ATSNote(
+        application_id=app3.id,
+        author_name="Nouman",
+        note="Previously employed with Larsen & Toubro Qatar",
+    )
+    db_session.add(note)
+    await db_session.commit()
+
+    # Match via candidate cover_letter
+    res_cover = await client.get("/api/admin/ats/applications?search=Aramco")
+    assert res_cover.status_code == 200
+    assert [r["candidate_name"] for r in res_cover.json()["data"]] == ["Imran Profile"]
+
+    # Match via job company_name
+    res_company = await client.get("/api/admin/ats/applications?search=Al-Bawani")
+    assert res_company.status_code == 200
+    assert [r["candidate_name"] for r in res_company.json()["data"]] == ["Karan Remarks"]
+
+    # Match via application interview_notes
+    res_notes = await client.get("/api/admin/ats/applications?search=Argon")
+    assert res_notes.status_code == 200
+    assert [r["candidate_name"] for r in res_notes.json()["data"]] == ["Karan Remarks"]
+
+    # Match via ATSNote remark
+    res_audit = await client.get("/api/admin/ats/applications?search=Larsen")
+    assert res_audit.status_code == 200
+    assert [r["candidate_name"] for r in res_audit.json()["data"]] == ["Nadeem AuditNote"]
+
+
+@pytest.mark.asyncio
 async def test_add_ats_note(client, db_session):
     candidate = await _create_candidate(db_session)
     application = Application(candidate_id=candidate.id)
