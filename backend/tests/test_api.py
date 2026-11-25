@@ -678,6 +678,61 @@ async def test_ats_negative_min_experience_returns_422(client):
 
 
 @pytest.mark.asyncio
+async def test_ats_sorting_controls(client, db_session):
+    from datetime import datetime, timedelta, timezone
+    from app.models.candidate import Candidate
+
+    c_zaid = Candidate(full_name="Zaid Khan", phone="+919800000011", years_experience=2)
+    c_ali = Candidate(full_name="Ali Ahmed", phone="+919800000012", years_experience=10)
+    c_babu = Candidate(full_name="Babu Nair", phone="+919800000013", years_experience=5)
+    db_session.add_all([c_zaid, c_ali, c_babu])
+    await db_session.commit()
+    for cand in (c_zaid, c_ali, c_babu):
+        await db_session.refresh(cand)
+
+    base_time = datetime(2026, 11, 1, 10, 0, tzinfo=timezone.utc)
+    db_session.add_all([
+        Application(candidate_id=c_zaid.id, created_at=base_time),
+        Application(candidate_id=c_ali.id, created_at=base_time + timedelta(hours=1)),
+        Application(candidate_id=c_babu.id, created_at=base_time + timedelta(hours=2)),
+    ])
+    await db_session.commit()
+
+    # Experience: highest to lowest
+    res_exp = await client.get("/api/admin/ats/applications?sort_by=experience_desc")
+    assert res_exp.status_code == 200
+    assert [row["candidate_name"] for row in res_exp.json()["data"]] == ["Ali Ahmed", "Babu Nair", "Zaid Khan"]
+
+    # Name: A to Z
+    res_name_asc = await client.get("/api/admin/ats/applications?sort_by=name_asc")
+    assert res_name_asc.status_code == 200
+    assert [row["candidate_name"] for row in res_name_asc.json()["data"]] == ["Ali Ahmed", "Babu Nair", "Zaid Khan"]
+
+    # Name: Z to A
+    res_name_desc = await client.get("/api/admin/ats/applications?sort_by=name_desc")
+    assert res_name_desc.status_code == 200
+    assert [row["candidate_name"] for row in res_name_desc.json()["data"]] == ["Zaid Khan", "Babu Nair", "Ali Ahmed"]
+
+    # Date: oldest first
+    res_date_asc = await client.get("/api/admin/ats/applications?sort_by=date_asc")
+    assert res_date_asc.status_code == 200
+    assert [row["candidate_name"] for row in res_date_asc.json()["data"]] == ["Zaid Khan", "Ali Ahmed", "Babu Nair"]
+
+    # Export respects sort_by
+    res_export = await client.get("/api/admin/ats/applications/export?format=csv&sort_by=experience_desc")
+    assert res_export.status_code == 200
+    lines = [line for line in res_export.text.strip().splitlines() if line]
+    assert "Ali Ahmed" in lines[1]
+    assert "Zaid Khan" in lines[3]
+
+
+@pytest.mark.asyncio
+async def test_ats_invalid_sort_by_returns_422(client):
+    response = await client.get("/api/admin/ats/applications?sort_by=invalid_sort")
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_add_ats_note(client, db_session):
     candidate = await _create_candidate(db_session)
     application = Application(candidate_id=candidate.id)

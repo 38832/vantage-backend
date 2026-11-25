@@ -266,6 +266,40 @@ def _render_excel_xml_bytes(rows: List[List[str]]) -> bytes:
     return xml_doc.encode("utf-8")
 
 
+ATSSortOption = Literal[
+    "date_desc",
+    "date_asc",
+    "experience_desc",
+    "experience_asc",
+    "name_asc",
+    "name_desc",
+]
+
+
+def _resolve_ats_sort_order(sort_by: ATSSortOption):
+    sort_map = {
+        "date_desc": ([Application.created_at.desc()], ["Application.created_at DESC"]),
+        "date_asc": ([Application.created_at.asc()], ["Application.created_at ASC"]),
+        "experience_desc": (
+            [func.coalesce(Candidate.years_experience, 0).desc(), Application.created_at.desc()],
+            ["Candidate.years_experience DESC", "Application.created_at DESC"],
+        ),
+        "experience_asc": (
+            [func.coalesce(Candidate.years_experience, 0).asc(), Application.created_at.desc()],
+            ["Candidate.years_experience ASC", "Application.created_at DESC"],
+        ),
+        "name_asc": (
+            [func.lower(Candidate.full_name).asc(), Application.created_at.desc()],
+            ["Candidate.full_name ASC", "Application.created_at DESC"],
+        ),
+        "name_desc": (
+            [func.lower(Candidate.full_name).desc(), Application.created_at.desc()],
+            ["Candidate.full_name DESC", "Application.created_at DESC"],
+        ),
+    }
+    return sort_map[sort_by]
+
+
 @router.get("/ats/applications/export")
 async def export_ats_applications(
     export_format: Literal["csv", "excel"] = Query("csv", alias="format"),
@@ -276,6 +310,7 @@ async def export_ats_applications(
     min_experience: Optional[int] = Query(None, ge=0),
     destination: Optional[str] = Query(None),
     passport_status: Optional[str] = Query(None),
+    sort_by: ATSSortOption = Query("date_desc"),
     application_ids: Optional[List[uuid.UUID]] = Query(None),
     db: AsyncSession = Depends(get_db),
 ):
@@ -302,7 +337,8 @@ async def export_ats_applications(
     if conditions:
         query = query.where(and_(*conditions))
 
-    query = query.order_by(Application.created_at.desc())
+    order_clauses, sorting_fields = _resolve_ats_sort_order(sort_by)
+    query = query.order_by(*order_clauses)
     res = await db.execute(query)
     applications = res.scalars().all()
 
@@ -313,7 +349,7 @@ async def export_ats_applications(
         entity="Application",
         operation=f"EXPORT ({export_format.upper()})",
         filters=applied_filters,
-        sorting=["Application.created_at DESC"],
+        sorting=sorting_fields,
         returned_count=len(rows),
         total_count=len(rows),
     )
@@ -347,6 +383,7 @@ async def list_ats_applications(
     min_experience: Optional[int] = Query(None, ge=0, description="Minimum years of experience"),
     destination: Optional[str] = Query(None, description="Filter by target destination country or city"),
     passport_status: Optional[str] = Query(None, description="Filter by passport readiness (ready, ecr, renewal, none)"),
+    sort_by: ATSSortOption = Query("date_desc", description="Sort candidates by date, experience, or name"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
     db: AsyncSession = Depends(get_db)
@@ -382,8 +419,8 @@ async def list_ats_applications(
     total = total_res.scalar() or 0
 
     offset = (page - 1) * limit
-    sorting_fields = ["Application.created_at DESC"]
-    data_query = base_query.order_by(Application.created_at.desc()).offset(offset).limit(limit)
+    order_clauses, sorting_fields = _resolve_ats_sort_order(sort_by)
+    data_query = base_query.order_by(*order_clauses).offset(offset).limit(limit)
     res = await db.execute(data_query)
     applications = res.scalars().all()
 

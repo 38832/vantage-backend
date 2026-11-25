@@ -317,6 +317,7 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
   const [minExperienceFilter, setMinExperienceFilter] = useState('');
   const [destinationFilter, setDestinationFilter] = useState('');
   const [passportFilter, setPassportFilter] = useState('');
+  const [sortBy, setSortBy] = useState<'date_desc' | 'date_asc' | 'experience_desc' | 'experience_asc' | 'name_asc' | 'name_desc'>('date_desc');
   const [selectedApp, setSelectedApp] = useState<ATSApplication | null>(INITIAL_APPLICATIONS[0]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkStatusTarget, setBulkStatusTarget] = useState<string>('shortlisted');
@@ -687,6 +688,7 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
     setMinExperienceFilter('');
     setDestinationFilter('');
     setPassportFilter('');
+    setSortBy('date_desc');
   };
 
   const filteredApps = applications.filter(app => {
@@ -730,6 +732,27 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
       return name.includes(q) || roleText.includes(q) || phone.includes(q) || destText.includes(q);
     }
     return true;
+  }).sort((a, b) => {
+    if (sortBy === 'date_asc') {
+      return new Date(a.created_at || 0).getTime() - new Date(b.created_at || 0).getTime();
+    }
+    if (sortBy === 'experience_desc') {
+      return getAppExperienceYears(b) - getAppExperienceYears(a);
+    }
+    if (sortBy === 'experience_asc') {
+      return getAppExperienceYears(a) - getAppExperienceYears(b);
+    }
+    if (sortBy === 'name_asc') {
+      const nameA = a.candidate_name || a.name || a.full_name || '';
+      const nameB = b.candidate_name || b.name || b.full_name || '';
+      return nameA.localeCompare(nameB);
+    }
+    if (sortBy === 'name_desc') {
+      const nameA = a.candidate_name || a.name || a.full_name || '';
+      const nameB = b.candidate_name || b.name || b.full_name || '';
+      return nameB.localeCompare(nameA);
+    }
+    return new Date(b.created_at || 0).getTime() - new Date(a.created_at || 0).getTime();
   });
 
   const getStatusBadge = (status?: string) => {
@@ -1139,7 +1162,7 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
             <span className="text-[11px] text-slate-400">
               {filteredApps.length} / {applications.length} shown
             </span>
-            {(statusFilter !== 'all' || searchQuery || tradeFilter || minExperienceFilter || destinationFilter || passportFilter) && (
+            {(statusFilter !== 'all' || searchQuery || tradeFilter || minExperienceFilter || destinationFilter || passportFilter || sortBy !== 'date_desc') && (
               <button
                 type="button"
                 onClick={resetFilters}
@@ -1149,6 +1172,43 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
               </button>
             )}
           </div>
+        </div>
+
+        <div className="pt-2.5 border-t border-slate-800/70 flex flex-wrap items-center justify-between gap-2 text-xs">
+          <div className="flex flex-wrap items-center gap-1.5">
+            <span className="text-[10px] font-bold uppercase text-slate-500 mr-1">Sort by:</span>
+            {[
+              { id: 'date_desc', label: 'Newest' },
+              { id: 'experience_desc', label: 'Most Experienced' },
+              { id: 'name_asc', label: 'Name A–Z' }
+            ].map(opt => (
+              <button
+                key={opt.id}
+                type="button"
+                onClick={() => setSortBy(opt.id as typeof sortBy)}
+                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold transition border ${
+                  sortBy === opt.id
+                    ? 'bg-amber-500 text-slate-950 border-amber-500'
+                    : 'bg-slate-800 text-slate-300 border-slate-700 hover:text-white'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+          <select
+            aria-label="Sort candidates"
+            value={sortBy}
+            onChange={e => setSortBy(e.target.value as typeof sortBy)}
+            className="bg-slate-800 border border-slate-700 rounded-lg px-2.5 py-1 text-white text-[11px] focus:outline-none focus:border-amber-500"
+          >
+            <option value="date_desc">Date: Newest First</option>
+            <option value="date_asc">Date: Oldest First</option>
+            <option value="experience_desc">Experience: High to Low</option>
+            <option value="experience_asc">Experience: Low to High</option>
+            <option value="name_asc">Name: A to Z</option>
+            <option value="name_desc">Name: Z to A</option>
+          </select>
         </div>
       </div>
 
