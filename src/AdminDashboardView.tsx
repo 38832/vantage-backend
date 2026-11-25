@@ -30,7 +30,8 @@ import {
   Award,
   ShieldCheck,
   Lock,
-  AlertCircle
+  AlertCircle,
+  Download
 } from 'lucide-react';
 
 export interface ATSApplication {
@@ -518,6 +519,113 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
     }
   };
 
+  const sanitizeSpreadsheetCell = (value: unknown): string => {
+    const text = value === null || value === undefined ? '' : String(value);
+    return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+  };
+
+  const escapeXmlCell = (value: string): string =>
+    value
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&apos;');
+
+  const handleExportCandidates = (format: 'csv' | 'excel') => {
+    const targetApps = selectedIds.length > 0
+      ? filteredApps.filter(app => selectedIds.includes(app.id))
+      : filteredApps;
+
+    if (targetApps.length === 0) return;
+
+    const headers = [
+      'Candidate Name',
+      'Phone',
+      'WhatsApp',
+      'Email',
+      'Target Trade',
+      'Company / Pool',
+      'Destination',
+      'Experience',
+      'Passport Status',
+      'Medical Status',
+      'Visa Status',
+      'Pipeline Status',
+      'Recruiter Assigned',
+      'Applied Date',
+    ];
+
+    const rows = targetApps.map(app => {
+      const name = app.candidate_name || app.name || app.full_name || 'Applicant';
+      const phone = app.candidate_phone || app.phone || '';
+      const whatsapp = app.candidate_whatsapp || app.whatsapp || phone;
+      const email = app.candidate_email || app.email || '';
+      const trade = app.target_trade || app.trade || app.candidate_job_title || app.candidate_role || app.job_title || 'General Deployment';
+      const company = app.company_name || "Nouman's Consultancy Pool";
+      const dest = app.destination || app.destination_country || app.location_country || 'GCC / Overseas';
+      const exp = app.experience || (app.experience_years ? `${app.experience_years} yrs` : (app.years_experience ? `${app.years_experience} yrs` : 'Fresher'));
+      const passport = app.passport_status || app.passport || 'ready';
+      const appliedDate = app.created_at ? app.created_at.slice(0, 10) : '';
+
+      return [
+        name,
+        phone,
+        whatsapp,
+        email,
+        trade,
+        company,
+        dest,
+        exp,
+        passport,
+        app.medical_status || 'pending',
+        app.visa_status || 'not_started',
+        app.application_status || app.status || 'new',
+        app.recruiter_assigned || '',
+        appliedDate,
+      ].map(sanitizeSpreadsheetCell);
+    });
+
+    const dateStamp = new Date().toISOString().slice(0, 10);
+    let blob: Blob;
+    let filename: string;
+
+    if (format === 'excel') {
+      const headerXml = headers
+        .map(h => `<Cell ss:StyleID="Header"><Data ss:Type="String">${escapeXmlCell(h)}</Data></Cell>`)
+        .join('');
+      const rowsXml = rows
+        .map(r => `<Row>${r.map(c => `<Cell><Data ss:Type="String">${escapeXmlCell(c)}</Data></Cell>`).join('')}</Row>`)
+        .join('\n');
+      const xmlDoc = [
+        '<?xml version="1.0" encoding="UTF-8"?>',
+        '<?mso-application progid="Excel.Sheet"?>',
+        '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">',
+        '<Styles><Style ss:ID="Header"><Font ss:Bold="1" ss:Color="#FFFFFF"/><Interior ss:Color="#0F2B48" ss:Pattern="Solid"/></Style></Styles>',
+        '<Worksheet ss:Name="Candidates"><Table>',
+        `<Row>${headerXml}</Row>`,
+        rowsXml,
+        '</Table></Worksheet></Workbook>',
+      ].join('\n');
+      blob = new Blob([xmlDoc], { type: 'application/vnd.ms-excel;charset=utf-8;' });
+      filename = `candidates_export_${dateStamp}.xls`;
+    } else {
+      const csvLine = (cols: string[]) => cols.map(v => `"${v.replace(/"/g, '""')}"`).join(',');
+      const csvText = '\uFEFF' + [csvLine(headers), ...rows.map(csvLine)].join('\r\n');
+      blob = new Blob([csvText], { type: 'text/csv;charset=utf-8;' });
+      filename = `candidates_export_${dateStamp}.csv`;
+    }
+
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
   const handleAddNote = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newNoteText.trim() || !selectedApp) return;
@@ -939,12 +1047,32 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
               <Briefcase className="w-4 h-4 text-amber-400" />
               <span>Candidate Applications & Deployment Status ({filteredApps.length})</span>
             </h3>
-            <span className="text-xs text-slate-400 flex items-center space-x-1.5">
-              <span>Endpoint:</span>
-              <code className="text-cyan-400 font-mono text-[11px] bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
-                /api/admin/ats/applications
-              </code>
-            </span>
+            <div className="flex flex-wrap items-center gap-2">
+              <button
+                type="button"
+                disabled={filteredApps.length === 0}
+                onClick={() => handleExportCandidates('csv')}
+                className="inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold transition disabled:opacity-40"
+              >
+                <Download className="w-3.5 h-3.5 text-cyan-400" />
+                <span>Export CSV</span>
+              </button>
+              <button
+                type="button"
+                disabled={filteredApps.length === 0}
+                onClick={() => handleExportCandidates('excel')}
+                className="inline-flex items-center space-x-1.5 px-2.5 py-1.5 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-300 border border-emerald-500/30 text-xs font-bold transition disabled:opacity-40"
+              >
+                <Download className="w-3.5 h-3.5" />
+                <span>Export Excel</span>
+              </button>
+              <span className="text-xs text-slate-400 hidden xl:flex items-center space-x-1.5">
+                <span>Endpoint:</span>
+                <code className="text-cyan-400 font-mono text-[11px] bg-slate-950 px-2 py-0.5 rounded border border-slate-800">
+                  /api/admin/ats/applications
+                </code>
+              </span>
+            </div>
           </div>
 
           {selectedIds.length > 0 && (
@@ -1003,6 +1131,22 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
                     className="px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition disabled:opacity-50"
                   >
                     {isBulkUpdating ? 'Applying...' : 'Apply'}
+                  </button>
+                </div>
+                <div className="flex items-center space-x-1.5 pl-2 border-l border-slate-700">
+                  <button
+                    type="button"
+                    onClick={() => handleExportCandidates('csv')}
+                    className="px-2.5 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold transition"
+                  >
+                    Export CSV
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => handleExportCandidates('excel')}
+                    className="px-2.5 py-1 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs font-bold transition"
+                  >
+                    Export Excel
                   </button>
                 </div>
                 <button

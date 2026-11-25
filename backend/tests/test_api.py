@@ -521,6 +521,86 @@ async def test_ats_bulk_update_applications_unauthenticated_returns_401(unauthen
 
 
 @pytest.mark.asyncio
+async def test_ats_export_csv_success(client, db_session):
+    from app.models.candidate import Candidate
+
+    c1 = Candidate(
+        full_name="=CMD_INJECTION",
+        phone="+971500002001",
+        email="export1@example.com",
+        current_job_title="6G Welder",
+        preferred_country="Saudi Arabia",
+        years_experience=6,
+        passport_status="ready",
+    )
+    db_session.add(c1)
+    await db_session.commit()
+    await db_session.refresh(c1)
+
+    app1 = Application(candidate_id=c1.id, application_status=ApplicationStatus.shortlisted, recruiter_assigned="Nouman")
+    db_session.add(app1)
+    await db_session.commit()
+
+    response = await client.get("/api/admin/ats/applications/export?format=csv")
+    assert response.status_code == 200
+    assert "text/csv" in response.headers["content-type"]
+    assert ".csv" in response.headers["content-disposition"]
+
+    body = response.text
+    assert "Candidate Name,Phone,WhatsApp,Email,Target Trade" in body
+    assert "'=CMD_INJECTION" in body
+    assert "'+971500002001" in body
+    assert "6G Welder" in body
+    assert "shortlisted" in body
+
+
+@pytest.mark.asyncio
+async def test_ats_export_excel_success(client, db_session):
+    candidate = await _create_candidate(db_session)
+    app = Application(candidate_id=candidate.id, application_status=ApplicationStatus.new)
+    db_session.add(app)
+    await db_session.commit()
+
+    response = await client.get("/api/admin/ats/applications/export?format=excel")
+    assert response.status_code == 200
+    assert "application/vnd.ms-excel" in response.headers["content-type"]
+    assert ".xls" in response.headers["content-disposition"]
+
+    body = response.text
+    assert "<Workbook" in body
+    assert "Document Candidate" in body
+
+
+@pytest.mark.asyncio
+async def test_ats_export_filtered_by_ids_and_status(client, db_session):
+    c1 = await _create_candidate(db_session)
+    c2 = await _create_candidate(db_session)
+    app1 = Application(candidate_id=c1.id, application_status=ApplicationStatus.shortlisted)
+    app2 = Application(candidate_id=c2.id, application_status=ApplicationStatus.new)
+    db_session.add_all([app1, app2])
+    await db_session.commit()
+    await db_session.refresh(app1)
+    await db_session.refresh(app2)
+
+    res_status = await client.get("/api/admin/ats/applications/export?format=csv&status=shortlisted")
+    assert res_status.status_code == 200
+    lines_status = [line for line in res_status.text.strip().splitlines() if line]
+    assert len(lines_status) == 2
+
+    res_ids = await client.get(f"/api/admin/ats/applications/export?format=csv&application_ids={app2.id}")
+    assert res_ids.status_code == 200
+    lines_ids = [line for line in res_ids.text.strip().splitlines() if line]
+    assert len(lines_ids) == 2
+    assert "new" in lines_ids[1]
+
+
+@pytest.mark.asyncio
+async def test_ats_export_unauthenticated_returns_401(unauthenticated_client):
+    response = await unauthenticated_client.get("/api/admin/ats/applications/export?format=csv")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_add_ats_note(client, db_session):
     candidate = await _create_candidate(db_session)
     application = Application(candidate_id=candidate.id)

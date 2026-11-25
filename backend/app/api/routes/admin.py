@@ -1,6 +1,10 @@
+import csv
+import io
 import uuid
-from typing import Optional, List
-from fastapi import APIRouter, Depends, Query, HTTPException, status
+from datetime import datetime, timezone
+from typing import Optional, List, Literal
+from xml.sax.saxutils import escape as xml_escape
+from fastapi import APIRouter, Depends, Query, HTTPException, Response, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_, update, delete
 from sqlalchemy.orm import selectinload
@@ -83,20 +87,36 @@ async def get_ats_dashboard_stats(db: AsyncSession = Depends(get_db)):
     return ApiResponse.ok(stats)
 
 
-@router.get("/ats/applications", response_model=ApiResponse[List[ApplicationOut]])
-async def list_ats_applications(
-    status_filter: Optional[ApplicationStatus] = Query(None, alias="status"),
-    recruiter_assigned: Optional[str] = Query(None),
-    search: Optional[str] = Query(None, description="Search candidate name, phone, or job title"),
-    page: int = Query(1, ge=1),
-    limit: int = Query(20, ge=1, le=100),
-    db: AsyncSession = Depends(get_db)
+EXPORT_HEADERS = [
+    "Candidate Name",
+    "Phone",
+    "WhatsApp",
+    "Email",
+    "Target Trade",
+    "Company / Pool",
+    "Destination",
+    "Experience",
+    "Passport Status",
+    "Medical Status",
+    "Visa Status",
+    "Pipeline Status",
+    "Recruiter Assigned",
+    "Applied Date",
+]
+
+
+def _build_ats_filter_conditions(
+    status_filter: Optional[ApplicationStatus] = None,
+    recruiter_assigned: Optional[str] = None,
+    search: Optional[str] = None,
+    application_ids: Optional[List[uuid.UUID]] = None,
 ):
-    """
-    Admin recruiter view of candidate applications across stages
-    """
     conditions = []
     applied_filters = []
+
+    if application_ids:
+        conditions.append(Application.id.in_(application_ids))
+        applied_filters.append(f"ids IN ({len(application_ids)})")
 
     if status_filter:
         conditions.append(Application.application_status == status_filter)
@@ -117,6 +137,180 @@ async def list_ats_applications(
             )
         )
         applied_filters.append(f"search LIKE '{search}' (name/phone/title)")
+
+    return conditions, applied_filters
+
+
+def _sanitize_spreadsheet_cell(value: object) -> str:
+    text = "" if value is None else str(value)
+    if text and text[0] in ("=", "+", "-", "@", "\t", "\r"):
+        return f"'{text}"
+    return text
+
+
+def _application_to_export_row(app: Application) -> List[str]:
+    cand = app.candidate
+    jb = app.job
+
+    cand_name = cand.full_name if cand else "Unknown Candidate"
+    cand_phone = cand.phone if cand else ""
+    cand_whatsapp = cand.whatsapp if (cand and cand.whatsapp) else cand_phone
+    cand_email = cand.email if (cand and cand.email) else ""
+    cand_trade = (
+        cand.current_job_title
+        if (cand and cand.current_job_title)
+        else (jb.title if jb else "General Deployment Candidate")
+    )
+    company = jb.company_name if jb else "Consultancy Pool"
+    dest_country = (
+        jb.location_country
+        if (jb and jb.location_country)
+        else (cand.preferred_country if (cand and cand.preferred_country) else "GCC / Overseas")
+    )
+    exp_years = cand.years_experience if (cand and cand.years_experience is not None) else 0
+    exp_formatted = f"{exp_years} yrs" if exp_years else "Fresher / Entry"
+    pass_status = cand.passport_status if (cand and cand.passport_status) else "ready"
+    applied_date = app.created_at.strftime("%Y-%m-%d") if app.created_at else ""
+
+    raw_values = [
+        cand_name,
+        cand_phone,
+        cand_whatsapp,
+        cand_email,
+        cand_trade,
+        company,
+        dest_country,
+        exp_formatted,
+        pass_status,
+        app.medical_status or "pending",
+        app.visa_status or "not_started",
+        app.application_status.value if hasattr(app.application_status, "value") else str(app.application_status),
+        app.recruiter_assigned or "",
+        applied_date,
+    ]
+    return [_sanitize_spreadsheet_cell(val) for val in raw_values]
+
+
+def _render_csv_bytes(rows: List[List[str]]) -> bytes:
+    buf = io.StringIO()
+    writer = csv.writer(buf)
+    writer.writerow(EXPORT_HEADERS)
+    writer.writerows(rows)
+    return ("\ufeff" + buf.getvalue()).encode("utf-8")
+
+
+def _render_excel_xml_bytes(rows: List[List[str]]) -> bytes:
+    header_cells = "".join(
+        f'<Cell ss:StyleID="Header"><Data ss:Type="String">{xml_escape(h)}</Data></Cell>'
+        for h in EXPORT_HEADERS
+    )
+    data_rows_xml = []
+    for row in rows:
+        cells = "".join(
+            f'<Cell><Data ss:Type="String">{xml_escape(cell)}</Data></Cell>'
+            for cell in row
+        )
+        data_rows_xml.append(f"<Row>{cells}</Row>")
+
+    xml_doc = (
+        '<?xml version="1.0" encoding="UTF-8"?>\n'
+        '<?mso-application progid="Excel.Sheet"?>\n'
+        '<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" '
+        'xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">\n'
+        '<Styles>\n'
+        '<Style ss:ID="Header"><Font ss:Bold="1" ss:Color="#FFFFFF"/>'
+        '<Interior ss:Color="#0F2B48" ss:Pattern="Solid"/></Style>\n'
+        '</Styles>\n'
+        '<Worksheet ss:Name="Candidates">\n'
+        '<Table>\n'
+        f'<Row>{header_cells}</Row>\n'
+        + "\n".join(data_rows_xml)
+        + "\n</Table>\n</Worksheet>\n</Workbook>\n"
+    )
+    return xml_doc.encode("utf-8")
+
+
+@router.get("/ats/applications/export")
+async def export_ats_applications(
+    export_format: Literal["csv", "excel"] = Query("csv", alias="format"),
+    status_filter: Optional[ApplicationStatus] = Query(None, alias="status"),
+    recruiter_assigned: Optional[str] = Query(None),
+    search: Optional[str] = Query(None),
+    application_ids: Optional[List[uuid.UUID]] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    """
+    Export selected or filtered ATS candidate applications as CSV or Excel (.xls).
+    """
+    conditions, applied_filters = _build_ats_filter_conditions(
+        status_filter=status_filter,
+        recruiter_assigned=recruiter_assigned,
+        search=search,
+        application_ids=application_ids,
+    )
+
+    query = (
+        select(Application)
+        .join(Candidate, Application.candidate_id == Candidate.id)
+        .outerjoin(Job, Application.job_id == Job.id)
+        .options(selectinload(Application.candidate), selectinload(Application.job))
+    )
+    if conditions:
+        query = query.where(and_(*conditions))
+
+    query = query.order_by(Application.created_at.desc())
+    res = await db.execute(query)
+    applications = res.scalars().all()
+
+    rows = [_application_to_export_row(app) for app in applications]
+    date_stamp = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+    log_query_details(
+        entity="Application",
+        operation=f"EXPORT ({export_format.upper()})",
+        filters=applied_filters,
+        sorting=["Application.created_at DESC"],
+        returned_count=len(rows),
+        total_count=len(rows),
+    )
+
+    if export_format == "excel":
+        content = _render_excel_xml_bytes(rows)
+        return Response(
+            content=content,
+            media_type="application/vnd.ms-excel; charset=utf-8",
+            headers={
+                "Content-Disposition": f'attachment; filename="candidates_export_{date_stamp}.xls"',
+            },
+        )
+
+    content = _render_csv_bytes(rows)
+    return Response(
+        content=content,
+        media_type="text/csv; charset=utf-8",
+        headers={
+            "Content-Disposition": f'attachment; filename="candidates_export_{date_stamp}.csv"',
+        },
+    )
+
+
+@router.get("/ats/applications", response_model=ApiResponse[List[ApplicationOut]])
+async def list_ats_applications(
+    status_filter: Optional[ApplicationStatus] = Query(None, alias="status"),
+    recruiter_assigned: Optional[str] = Query(None),
+    search: Optional[str] = Query(None, description="Search candidate name, phone, or job title"),
+    page: int = Query(1, ge=1),
+    limit: int = Query(20, ge=1, le=100),
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Admin recruiter view of candidate applications across stages
+    """
+    conditions, applied_filters = _build_ats_filter_conditions(
+        status_filter=status_filter,
+        recruiter_assigned=recruiter_assigned,
+        search=search,
+    )
 
     base_query = (
         select(Application)
