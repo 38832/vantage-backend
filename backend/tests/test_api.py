@@ -435,6 +435,92 @@ async def test_ats_invalid_status(client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_ats_bulk_update_applications_success(client, db_session):
+    c1 = await _create_candidate(db_session)
+    c2 = await _create_candidate(db_session)
+    c3 = await _create_candidate(db_session)
+    app1 = Application(candidate_id=c1.id, application_status=ApplicationStatus.new)
+    app2 = Application(candidate_id=c2.id, application_status=ApplicationStatus.contacted)
+    app3 = Application(candidate_id=c3.id, application_status=ApplicationStatus.new)
+    db_session.add_all([app1, app2, app3])
+    await db_session.commit()
+    await db_session.refresh(app1)
+    await db_session.refresh(app2)
+    await db_session.refresh(app3)
+
+    payload = {
+        "application_ids": [str(app1.id), str(app2.id), str(app1.id)],
+        "application_status": "shortlisted",
+        "recruiter_assigned": "Nouman",
+    }
+    response = await client.patch("/api/admin/ats/applications/bulk-status", json=payload)
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["updated_count"] == 2
+    assert set(data["updated_ids"]) == {str(app1.id), str(app2.id)}
+    assert data["missing_ids"] == []
+    assert data["application_status"] == "shortlisted"
+    assert data["recruiter_assigned"] == "Nouman"
+
+    await db_session.refresh(app1)
+    await db_session.refresh(app2)
+    await db_session.refresh(app3)
+    assert app1.application_status == ApplicationStatus.shortlisted
+    assert app2.application_status == ApplicationStatus.shortlisted
+    assert app1.recruiter_assigned == "Nouman"
+    assert app2.recruiter_assigned == "Nouman"
+    assert app3.application_status == ApplicationStatus.new
+
+
+@pytest.mark.asyncio
+async def test_ats_bulk_update_applications_partial_missing(client, db_session):
+    candidate = await _create_candidate(db_session)
+    app = Application(candidate_id=candidate.id, application_status=ApplicationStatus.new)
+    db_session.add(app)
+    await db_session.commit()
+    await db_session.refresh(app)
+
+    missing_id = str(uuid.uuid4())
+    response = await client.patch(
+        "/api/admin/ats/applications/bulk-status",
+        json={"application_ids": [str(app.id), missing_id], "application_status": "archived"},
+    )
+    assert response.status_code == 200
+    data = response.json()["data"]
+    assert data["updated_count"] == 1
+    assert data["updated_ids"] == [str(app.id)]
+    assert data["missing_ids"] == [missing_id]
+    assert data["application_status"] == "archived"
+
+
+@pytest.mark.asyncio
+async def test_ats_bulk_update_applications_all_missing_returns_404(client):
+    response = await client.patch(
+        "/api/admin/ats/applications/bulk-status",
+        json={"application_ids": [str(uuid.uuid4())], "application_status": "shortlisted"},
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_ats_bulk_update_applications_empty_list_returns_422(client):
+    response = await client.patch(
+        "/api/admin/ats/applications/bulk-status",
+        json={"application_ids": [], "application_status": "shortlisted"},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_ats_bulk_update_applications_unauthenticated_returns_401(unauthenticated_client):
+    response = await unauthenticated_client.patch(
+        "/api/admin/ats/applications/bulk-status",
+        json={"application_ids": [str(uuid.uuid4())], "application_status": "shortlisted"},
+    )
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_add_ats_note(client, db_session):
     candidate = await _create_candidate(db_session)
     application = Application(candidate_id=candidate.id)

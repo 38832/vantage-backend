@@ -2,7 +2,7 @@ import uuid
 from datetime import datetime, date
 from typing import Optional, List
 from urllib.parse import urlparse
-from pydantic import BaseModel, EmailStr, ConfigDict, model_validator, field_validator
+from pydantic import BaseModel, EmailStr, ConfigDict, Field, model_validator, field_validator
 from app.models.application import ApplicationStatus
 from app.models.candidate import ResumeSource
 
@@ -122,6 +122,21 @@ class ApplicationUpdate(BaseModel):
     medical_status: Optional[str] = None
     visa_status: Optional[str] = None
     notes: Optional[str] = None
+
+
+class BulkApplicationStatusUpdate(BaseModel):
+    application_ids: List[uuid.UUID] = Field(..., min_length=1, max_length=100)
+    application_status: ApplicationStatus
+    recruiter_assigned: Optional[str] = None
+
+
+class BulkApplicationStatusOut(BaseModel):
+    updated_count: int
+    updated_ids: List[str]
+    missing_ids: List[str]
+    application_status: str
+    recruiter_assigned: Optional[str] = None
+    message: str
 
 class ApplicationOut(BaseModel):
     id: uuid.UUID

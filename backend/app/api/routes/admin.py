@@ -14,7 +14,13 @@ from app.models.job import Job, JobCategory, JobStatus
 from app.models.ats_note import ATSNote
 from app.schemas.response import ApiResponse, MetaData
 from app.schemas.application import (
-    ApplicationOut, ApplicationUpdate, ATSNoteCreate, ATSNoteOut, ATSDashboardStats
+    ApplicationOut,
+    ApplicationUpdate,
+    ATSNoteCreate,
+    ATSNoteOut,
+    ATSDashboardStats,
+    BulkApplicationStatusUpdate,
+    BulkApplicationStatusOut,
 )
 from app.schemas.job import JobCreate, JobUpdate, JobDetailOut
 from app.core.logger import (
@@ -237,6 +243,62 @@ async def list_ats_applications(
         )
 
     return ApiResponse.ok(data=out_list, meta=MetaData(page=page, limit=limit, total=total))
+
+
+@router.patch("/ats/applications/bulk-status", response_model=ApiResponse[BulkApplicationStatusOut])
+async def bulk_update_application_status(
+    payload: BulkApplicationStatusUpdate,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Batch update ATS application status (and optional recruiter assignment) for multiple applications.
+    """
+    unique_ids = list(dict.fromkeys(payload.application_ids))
+    query = select(Application).where(Application.id.in_(unique_ids))
+    res = await db.execute(query)
+    applications = res.scalars().all()
+
+    if not applications:
+        raise HTTPException(status_code=404, detail="No matching applications found")
+
+    found_by_id = {app.id: app for app in applications}
+    updated_ids: List[str] = []
+    missing_ids: List[str] = []
+
+    for app_id in unique_ids:
+        app = found_by_id.get(app_id)
+        if not app:
+            missing_ids.append(str(app_id))
+            continue
+        app.application_status = payload.application_status
+        if payload.recruiter_assigned is not None:
+            app.recruiter_assigned = payload.recruiter_assigned
+        updated_ids.append(str(app.id))
+
+    await db.commit()
+
+    log_mutation_details(
+        entity_name="Application",
+        entity_id=updated_ids[0],
+        operation="BULK_UPDATE",
+        changes={
+            "updated_count": len(updated_ids),
+            "application_status": payload.application_status.value,
+            "recruiter_assigned": payload.recruiter_assigned,
+        },
+        details=f"Bulk updated {len(updated_ids)} application(s) to '{payload.application_status.value}'"
+    )
+
+    return ApiResponse.ok(
+        BulkApplicationStatusOut(
+            updated_count=len(updated_ids),
+            updated_ids=updated_ids,
+            missing_ids=missing_ids,
+            application_status=payload.application_status.value,
+            recruiter_assigned=payload.recruiter_assigned,
+            message=f"Updated {len(updated_ids)} application(s) to '{payload.application_status.value}'",
+        )
+    )
 
 
 @router.patch("/ats/applications/{application_id}")

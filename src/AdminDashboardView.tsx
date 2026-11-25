@@ -313,6 +313,9 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedApp, setSelectedApp] = useState<ATSApplication | null>(INITIAL_APPLICATIONS[0]);
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkStatusTarget, setBulkStatusTarget] = useState<string>('shortlisted');
+  const [isBulkUpdating, setIsBulkUpdating] = useState<boolean>(false);
   const [newNoteText, setNewNoteText] = useState('');
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
@@ -456,6 +459,62 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
       if (!response.ok) setLiveError(`Unable to update the application (HTTP ${response.status}).`);
     } catch (error) {
       setLiveError(error instanceof Error ? error.message : 'Unable to update the application.');
+    }
+  };
+
+  const toggleSelectId = (appId: string) => {
+    setSelectedIds(prev =>
+      prev.includes(appId) ? prev.filter(id => id !== appId) : [...prev, appId]
+    );
+  };
+
+  const toggleSelectAll = (visibleIds: string[]) => {
+    const allSelected = visibleIds.length > 0 && visibleIds.every(id => selectedIds.includes(id));
+    if (allSelected) {
+      setSelectedIds(prev => prev.filter(id => !visibleIds.includes(id)));
+    } else {
+      setSelectedIds(prev => Array.from(new Set([...prev, ...visibleIds])));
+    }
+  };
+
+  const handleBulkStatusChange = async (newStatus: string) => {
+    if (selectedIds.length === 0) return;
+
+    const targetIds = [...selectedIds];
+    setApplications(prev =>
+      prev.map(item => (targetIds.includes(item.id) ? { ...item, application_status: newStatus, status: newStatus } : item))
+    );
+    if (selectedApp && targetIds.includes(selectedApp.id)) {
+      setSelectedApp(prev => (prev ? { ...prev, application_status: newStatus, status: newStatus } : null));
+    }
+    setSelectedIds([]);
+
+    if (!authToken) return;
+
+    setIsBulkUpdating(true);
+    try {
+      const response = await fetch(`${backendApiOrigin}/api/admin/ats/applications/bulk-status`, {
+        method: 'PATCH',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          application_ids: targetIds,
+          application_status: newStatus
+        })
+      });
+      if (response.status === 401) {
+        clearStaffSession('Your session expired. Sign in again.');
+        return;
+      }
+      if (!response.ok) {
+        setLiveError(`Unable to bulk update applications (HTTP ${response.status}).`);
+      }
+    } catch (error) {
+      setLiveError(error instanceof Error ? error.message : 'Unable to bulk update applications.');
+    } finally {
+      setIsBulkUpdating(false);
     }
   };
 
@@ -888,10 +947,88 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
             </span>
           </div>
 
+          {selectedIds.length > 0 && (
+            <div className="px-4 py-3 bg-amber-500/10 border-b border-amber-500/30 flex flex-wrap items-center justify-between gap-3">
+              <div className="flex items-center space-x-2">
+                <span className="px-2.5 py-0.5 rounded-full bg-amber-500 text-slate-950 text-xs font-extrabold">
+                  {selectedIds.length} selected
+                </span>
+                <span className="text-xs text-slate-300 font-medium">Batch status update:</span>
+              </div>
+              <div className="flex flex-wrap items-center gap-2">
+                <button
+                  type="button"
+                  disabled={isBulkUpdating}
+                  onClick={() => handleBulkStatusChange('shortlisted')}
+                  className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-300 border border-amber-500/40 text-xs font-bold transition disabled:opacity-50"
+                >
+                  Shortlist
+                </button>
+                <button
+                  type="button"
+                  disabled={isBulkUpdating}
+                  onClick={() => handleBulkStatusChange('contacted')}
+                  className="px-2.5 py-1 rounded-lg bg-sky-500/20 hover:bg-sky-500/30 text-sky-300 border border-sky-500/40 text-xs font-bold transition disabled:opacity-50"
+                >
+                  Under Review
+                </button>
+                <button
+                  type="button"
+                  disabled={isBulkUpdating}
+                  onClick={() => handleBulkStatusChange('archived')}
+                  className="px-2.5 py-1 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 border border-slate-600 text-xs font-bold transition disabled:opacity-50"
+                >
+                  Archive
+                </button>
+                <div className="flex items-center space-x-1.5 pl-2 border-l border-slate-700">
+                  <select
+                    aria-label="Bulk status selector"
+                    value={bulkStatusTarget}
+                    onChange={e => setBulkStatusTarget(e.target.value)}
+                    className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1 text-xs text-white focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="new">New Review</option>
+                    <option value="contacted">Under Review</option>
+                    <option value="shortlisted">Shortlisted</option>
+                    <option value="interview_scheduled">Interview Scheduled</option>
+                    <option value="visa_pending">Visa Pending</option>
+                    <option value="hired">Hired &amp; Deployed</option>
+                    <option value="rejected">Rejected</option>
+                    <option value="archived">Archived</option>
+                  </select>
+                  <button
+                    type="button"
+                    disabled={isBulkUpdating}
+                    onClick={() => handleBulkStatusChange(bulkStatusTarget)}
+                    className="px-2.5 py-1 rounded-lg bg-cyan-600 hover:bg-cyan-500 text-white text-xs font-bold transition disabled:opacity-50"
+                  >
+                    {isBulkUpdating ? 'Applying...' : 'Apply'}
+                  </button>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setSelectedIds([])}
+                  className="px-2 py-1 text-xs text-slate-400 hover:text-white underline"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
+
           <div className="overflow-x-auto">
             <table className="w-full text-left text-xs">
               <thead className="bg-slate-950/70 text-slate-400 border-b border-slate-800 uppercase font-mono text-[10px]">
                 <tr>
+                  <th className="py-3 px-4 w-10">
+                    <input
+                      type="checkbox"
+                      aria-label="Select all visible candidates"
+                      checked={filteredApps.length > 0 && filteredApps.every(a => selectedIds.includes(a.id))}
+                      onChange={() => toggleSelectAll(filteredApps.map(a => a.id))}
+                      className="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500 cursor-pointer"
+                    />
+                  </th>
                   <th className="py-3 px-4">Candidate</th>
                   <th className="py-3 px-4">Target Trade</th>
                   <th className="py-3 px-4">Destination</th>
@@ -904,12 +1041,13 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
               <tbody className="divide-y divide-slate-800/60 text-slate-300">
                 {filteredApps.length === 0 ? (
                   <tr>
-                    <td colSpan={7} className="py-8 text-center text-slate-500">
+                    <td colSpan={8} className="py-8 text-center text-slate-500">
                       No candidate applications found matching the selected filter.
                     </td>
                   </tr>
                 ) : (
                   filteredApps.map(app => {
+                    const isChecked = selectedIds.includes(app.id);
                     const candidateName = app.candidate_name || app.name || app.full_name || 'Applicant';
                     const candidatePhone = app.candidate_phone || app.phone || '';
                     const candidateEmail = app.candidate_email || app.email || '';
@@ -925,9 +1063,18 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
                         key={app.id}
                         onClick={() => setSelectedApp(app)}
                         className={`hover:bg-slate-850 cursor-pointer transition ${
-                          selectedApp?.id === app.id ? 'bg-slate-800/90 ring-1 ring-inset ring-amber-500/40' : ''
+                          selectedApp?.id === app.id ? 'bg-slate-800/90 ring-1 ring-inset ring-amber-500/40' : isChecked ? 'bg-amber-500/5' : ''
                         }`}
                       >
+                        <td className="py-3.5 px-4" onClick={e => e.stopPropagation()}>
+                          <input
+                            type="checkbox"
+                            aria-label={`Select ${candidateName}`}
+                            checked={isChecked}
+                            onChange={() => toggleSelectId(app.id)}
+                            className="rounded border-slate-600 bg-slate-800 text-amber-500 focus:ring-amber-500 cursor-pointer"
+                          />
+                        </td>
                         {/* Candidate Column */}
                         <td className="py-3.5 px-4">
                           <div className="font-bold text-white text-sm">{candidateName}</div>
