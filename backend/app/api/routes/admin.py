@@ -28,7 +28,7 @@ from app.schemas.application import (
     QuickContactLogPayload,
     QuickContactLogOut,
 )
-from app.schemas.job import JobCreate, JobUpdate, JobDetailOut
+from app.schemas.job import JobCreate, JobUpdate, JobDuplicatePayload, JobDetailOut
 from app.core.logger import (
     log_query_details,
     log_mutation_details,
@@ -849,6 +849,70 @@ async def create_job(
     )
 
     return ApiResponse.ok(job)
+
+
+@router.post("/jobs/{job_id}/duplicate", response_model=ApiResponse[JobDetailOut])
+async def duplicate_job(
+    job_id: uuid.UUID,
+    payload: Optional[JobDuplicatePayload] = None,
+    db: AsyncSession = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+):
+    """
+    Duplicate an existing job vacancy while optionally adjusting title, location, openings, or status.
+    """
+    res = await db.execute(select(Job).options(selectinload(Job.category)).where(Job.id == job_id))
+    source_job = res.scalar_one_or_none()
+    if not source_job:
+        raise HTTPException(status_code=404, detail="Job not found")
+
+    overrides = payload or JobDuplicatePayload()
+    new_title = (overrides.title or "").strip() or f"{source_job.title} (Copy)"[:255]
+
+    duplicated = Job(
+        category_id=source_job.category_id,
+        title=new_title,
+        company_name=source_job.company_name,
+        employer_contact_name=source_job.employer_contact_name,
+        employer_email=source_job.employer_email,
+        employer_phone=source_job.employer_phone,
+        location_country=(overrides.location_country or "").strip() or source_job.location_country,
+        location_city=overrides.location_city if overrides.location_city is not None else source_job.location_city,
+        work_location_type=source_job.work_location_type,
+        visa_required=source_job.visa_required,
+        visa_type=source_job.visa_type,
+        employment_type=source_job.employment_type,
+        experience_min=source_job.experience_min,
+        experience_max=source_job.experience_max,
+        age_min=source_job.age_min,
+        age_max=source_job.age_max,
+        gender_preference=source_job.gender_preference,
+        nationality_preference=source_job.nationality_preference,
+        salary_min=source_job.salary_min,
+        salary_max=source_job.salary_max,
+        salary_currency=source_job.salary_currency,
+        openings_count=overrides.openings_count if overrides.openings_count is not None else source_job.openings_count,
+        job_description=source_job.job_description,
+        requirements=source_job.requirements,
+        benefits=source_job.benefits,
+        skills=list(source_job.skills or []),
+        urgent=source_job.urgent,
+        featured=source_job.featured,
+        status=overrides.status or JobStatus.published,
+    )
+    db.add(duplicated)
+    await db.commit()
+    await db.refresh(duplicated)
+
+    log_mutation_details(
+        entity_name="Job",
+        entity_id=duplicated.id,
+        operation="DUPLICATE",
+        changes={"source_job_id": str(job_id), "title": duplicated.title},
+        details=f"Duplicated Job '{source_job.title}' -> '{duplicated.title}' by {current_admin.email}",
+    )
+
+    return ApiResponse.ok(duplicated)
 
 
 @router.patch("/jobs/{job_id}", response_model=ApiResponse[JobDetailOut])

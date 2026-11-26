@@ -939,6 +939,53 @@ async def test_ats_attention_alerts_and_filtering(client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_admin_duplicate_job_success(client, db_session):
+    category = await seed_category(db_session)
+    job = await seed_job(db_session, category)
+    job.benefits = "Free Visa, Camp Accommodation"
+    job.requirements = "GCC experience, Trade certificate"
+    job.openings_count = 10
+    await db_session.commit()
+    await db_session.refresh(job)
+
+    # 1. Default one-click duplicate (empty payload)
+    res_default = await client.post(f"/api/admin/jobs/{job.id}/duplicate", json={})
+    assert res_default.status_code == 200
+    dup1 = res_default.json()["data"]
+    assert dup1["id"] != str(job.id)
+    assert dup1["title"] == f"{job.title} (Copy)"
+    assert dup1["company_name"] == job.company_name
+    assert dup1["benefits"] == "Free Visa, Camp Accommodation"
+    assert dup1["requirements"] == "GCC experience, Trade certificate"
+    assert dup1["openings_count"] == 10
+
+    # 2. Duplicate with adjusted title, city, and openings
+    res_override = await client.post(
+        f"/api/admin/jobs/{job.id}/duplicate",
+        json={"title": "6G Welder - Jeddah Site", "location_city": "Jeddah", "openings_count": 25},
+    )
+    assert res_override.status_code == 200
+    dup2 = res_override.json()["data"]
+    assert dup2["id"] != str(job.id)
+    assert dup2["title"] == "6G Welder - Jeddah Site"
+    assert dup2["location_city"] == "Jeddah"
+    assert dup2["openings_count"] == 25
+    assert dup2["company_name"] == job.company_name
+
+
+@pytest.mark.asyncio
+async def test_admin_duplicate_unknown_job_returns_404(client):
+    response = await client.post(f"/api/admin/jobs/{uuid.uuid4()}/duplicate", json={})
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_admin_duplicate_job_unauthenticated_returns_401(unauthenticated_client):
+    response = await unauthenticated_client.post(f"/api/admin/jobs/{uuid.uuid4()}/duplicate", json={})
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_add_ats_note(client, db_session):
     candidate = await _create_candidate(db_session)
     application = Application(candidate_id=candidate.id)

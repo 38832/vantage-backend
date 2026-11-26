@@ -80,6 +80,14 @@ class JobUpdate(BaseModel):
     requirements: Optional[str] = None
     benefits: Optional[str] = None
 
+
+class JobDuplicatePayload(BaseModel):
+    title: Optional[str] = None
+    location_country: Optional[str] = None
+    location_city: Optional[str] = None
+    openings_count: Optional[int] = None
+    status: Optional[JobStatus] = None
+
 class JobListItemOut(BaseModel):
     id: uuid.UUID
     category_id: uuid.UUID
