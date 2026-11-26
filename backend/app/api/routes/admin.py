@@ -25,6 +25,8 @@ from app.schemas.application import (
     ATSDashboardStats,
     BulkApplicationStatusUpdate,
     BulkApplicationStatusOut,
+    QuickContactLogPayload,
+    QuickContactLogOut,
 )
 from app.schemas.job import JobCreate, JobUpdate, JobDetailOut
 from app.core.logger import (
@@ -101,6 +103,9 @@ EXPORT_HEADERS = [
     "Visa Status",
     "Pipeline Status",
     "Recruiter Assigned",
+    "Last Contacted",
+    "Contact Channel",
+    "Contact Outcome",
     "Applied Date",
 ]
 
@@ -241,6 +246,9 @@ def _application_to_export_row(app: Application) -> List[str]:
         app.visa_status or "not_started",
         app.application_status.value if hasattr(app.application_status, "value") else str(app.application_status),
         app.recruiter_assigned or "",
+        app.last_contacted_at.strftime("%Y-%m-%d %H:%M") if app.last_contacted_at else "",
+        app.last_contact_channel or "",
+        app.last_contact_outcome or "",
         applied_date,
     ]
     return [_sanitize_spreadsheet_cell(val) for val in raw_values]
@@ -540,11 +548,71 @@ async def list_ats_applications(
                 resume_url=cand.resume_url if cand else None,
                 resume_source=res_source,
                 resume_file_name=res_file_name,
+                last_contacted_at=app.last_contacted_at,
+                last_contact_channel=app.last_contact_channel,
+                last_contact_outcome=app.last_contact_outcome,
                 created_at=app.created_at
             )
         )
 
     return ApiResponse.ok(data=out_list, meta=MetaData(page=page, limit=limit, total=total))
+
+
+@router.post("/ats/applications/{application_id}/contact-log", response_model=ApiResponse[QuickContactLogOut])
+async def log_candidate_contact(
+    application_id: uuid.UUID,
+    payload: QuickContactLogPayload,
+    db: AsyncSession = Depends(get_db),
+    current_admin: AdminUser = Depends(get_current_admin),
+):
+    """
+    Record last contacted timestamp, channel, and optional quick outcome for a candidate application.
+    """
+    res = await db.execute(select(Application).where(Application.id == application_id))
+    app = res.scalar_one_or_none()
+    if not app:
+        raise HTTPException(status_code=404, detail="Application not found")
+
+    now = datetime.now(timezone.utc)
+    outcome_text = payload.outcome.strip() if payload.outcome and payload.outcome.strip() else "Outreach initiated"
+
+    app.last_contacted_at = now
+    app.last_contact_channel = payload.channel
+    app.last_contact_outcome = outcome_text
+
+    if payload.outcome and payload.outcome.strip():
+        author = (payload.author_name or current_admin.email or "Recruiter").strip()[:100]
+        note = ATSNote(
+            application_id=application_id,
+            author_name=author,
+            note=f"[{payload.channel.upper()} Contact] {outcome_text}",
+        )
+        db.add(note)
+
+    await db.commit()
+    await db.refresh(app)
+
+    log_mutation_details(
+        entity_name="Application",
+        entity_id=application_id,
+        operation="CONTACT_LOG",
+        changes={
+            "last_contacted_at": now.isoformat(),
+            "last_contact_channel": payload.channel,
+            "last_contact_outcome": outcome_text,
+        },
+        details=f"Contact logged via {payload.channel}: '{outcome_text}'"
+    )
+
+    return ApiResponse.ok(
+        QuickContactLogOut(
+            application_id=app.id,
+            last_contacted_at=app.last_contacted_at,
+            last_contact_channel=app.last_contact_channel,
+            last_contact_outcome=app.last_contact_outcome,
+            message=f"Logged {payload.channel} contact: {outcome_text}",
+        )
+    )
 
 
 @router.patch("/ats/applications/bulk-status", response_model=ApiResponse[BulkApplicationStatusOut])

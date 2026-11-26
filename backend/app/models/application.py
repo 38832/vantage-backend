@@ -47,7 +47,11 @@ class Application(Base):
     medical_status: Mapped[Optional[str]] = mapped_column(String(50), default="pending", nullable=True)
     visa_status: Mapped[Optional[str]] = mapped_column(String(50), default="not_started", nullable=True)
     notes: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
-    
+
+    last_contacted_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    last_contact_channel: Mapped[Optional[str]] = mapped_column(String(30), nullable=True)
+    last_contact_outcome: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
+
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=datetime.utcnow, onupdate=datetime.utcnow, nullable=False)
 

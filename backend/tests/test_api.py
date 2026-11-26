@@ -805,6 +805,86 @@ async def test_ats_comprehensive_profile_keyword_search(client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_ats_quick_contact_log_success(client, db_session):
+    from sqlalchemy import select
+    from app.models.ats_note import ATSNote
+
+    candidate = await _create_candidate(db_session)
+    application = Application(candidate_id=candidate.id, application_status=ApplicationStatus.new)
+    db_session.add(application)
+    await db_session.commit()
+    await db_session.refresh(application)
+
+    # 1. Auto-log on WhatsApp click (no explicit outcome)
+    res_wa = await client.post(
+        f"/api/admin/ats/applications/{application.id}/contact-log",
+        json={"channel": "whatsapp"},
+    )
+    assert res_wa.status_code == 200
+    wa_data = res_wa.json()["data"]
+    assert wa_data["last_contact_channel"] == "whatsapp"
+    assert wa_data["last_contact_outcome"] == "Outreach initiated"
+    assert wa_data["last_contacted_at"] is not None
+
+    # 2. One-click outcome log on Phone call
+    res_phone = await client.post(
+        f"/api/admin/ats/applications/{application.id}/contact-log",
+        json={"channel": "phone", "outcome": "Callback requested", "author_name": "Nouman"},
+    )
+    assert res_phone.status_code == 200
+    phone_data = res_phone.json()["data"]
+    assert phone_data["last_contact_channel"] == "phone"
+    assert phone_data["last_contact_outcome"] == "Callback requested"
+
+    # Verify ATSNote was also created for explicit outcome
+    notes_res = await db_session.execute(select(ATSNote).where(ATSNote.application_id == application.id))
+    notes = notes_res.scalars().all()
+    assert len(notes) == 1
+    assert "Callback requested" in notes[0].note
+
+    # Verify list endpoint returns last_contacted_* fields
+    list_res = await client.get("/api/admin/ats/applications")
+    assert list_res.status_code == 200
+    listed = next(item for item in list_res.json()["data"] if item["id"] == str(application.id))
+    assert listed["last_contact_channel"] == "phone"
+    assert listed["last_contact_outcome"] == "Callback requested"
+    assert listed["last_contacted_at"] is not None
+
+
+@pytest.mark.asyncio
+async def test_ats_quick_contact_log_unknown_application_returns_404(client):
+    response = await client.post(
+        f"/api/admin/ats/applications/{uuid.uuid4()}/contact-log",
+        json={"channel": "phone", "outcome": "Interested"},
+    )
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_ats_quick_contact_log_invalid_channel_returns_422(client, db_session):
+    candidate = await _create_candidate(db_session)
+    application = Application(candidate_id=candidate.id)
+    db_session.add(application)
+    await db_session.commit()
+    await db_session.refresh(application)
+
+    response = await client.post(
+        f"/api/admin/ats/applications/{application.id}/contact-log",
+        json={"channel": "sms_carrier_pigeon"},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
+async def test_ats_quick_contact_log_unauthenticated_returns_401(unauthenticated_client):
+    response = await unauthenticated_client.post(
+        f"/api/admin/ats/applications/{uuid.uuid4()}/contact-log",
+        json={"channel": "whatsapp"},
+    )
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_add_ats_note(client, db_session):
     candidate = await _create_candidate(db_session)
     application = Application(candidate_id=candidate.id)

@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime, date
-from typing import Optional, List
+from typing import Optional, List, Literal
 from urllib.parse import urlparse
 from pydantic import BaseModel, EmailStr, ConfigDict, Field, model_validator, field_validator
 from app.models.application import ApplicationStatus
@@ -193,6 +193,9 @@ class ApplicationOut(BaseModel):
     medical_status: Optional[str] = "pending"
     visa_status: Optional[str] = "not_started"
     notes: Optional[str] = None
+    last_contacted_at: Optional[datetime] = None
+    last_contact_channel: Optional[str] = None
+    last_contact_outcome: Optional[str] = None
 
     # Resumes and documents
     resume_url: Optional[str] = None
@@ -215,3 +218,17 @@ class ATSDashboardStats(BaseModel):
     visa_approved: int
     hired: int
     rejected: int
+
+
+class QuickContactLogPayload(BaseModel):
+    channel: Literal["whatsapp", "phone", "email", "manual"] = "phone"
+    outcome: Optional[str] = Field(None, max_length=100)
+    author_name: Optional[str] = Field(None, max_length=100)
+
+
+class QuickContactLogOut(BaseModel):
+    application_id: uuid.UUID
+    last_contacted_at: datetime
+    last_contact_channel: str
+    last_contact_outcome: Optional[str] = None
+    message: str

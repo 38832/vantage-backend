@@ -172,6 +172,9 @@ CREATE TABLE IF NOT EXISTS applications (
     medical_status TEXT DEFAULT 'pending',
     visa_status TEXT DEFAULT 'not_started',
     notes TEXT,
+    last_contacted_at TIMESTAMPTZ,
+    last_contact_channel TEXT,
+    last_contact_outcome TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

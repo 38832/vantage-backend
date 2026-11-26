@@ -98,6 +98,9 @@ export interface ATSApplication {
   resume_url?: string;
   resume_source?: string;
   resume_file_name?: string;
+  last_contacted_at?: string;
+  last_contact_channel?: string;
+  last_contact_outcome?: string;
   created_at?: string;
   notes_count?: number;
 }
@@ -671,6 +674,68 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
       if (!response.ok) setLiveError(`Unable to save the note (HTTP ${response.status}).`);
     } catch (error) {
       setLiveError(error instanceof Error ? error.message : 'Unable to save the note.');
+    }
+  };
+
+  const handleQuickContactLog = async (
+    appId: string,
+    channel: 'whatsapp' | 'phone' | 'email' | 'manual',
+    outcome?: string
+  ) => {
+    const nowIso = new Date().toISOString();
+    const outcomeText = outcome?.trim() || 'Outreach initiated';
+
+    setApplications(prev =>
+      prev.map(item =>
+        item.id === appId
+          ? {
+              ...item,
+              last_contacted_at: nowIso,
+              last_contact_channel: channel,
+              last_contact_outcome: outcomeText,
+              notes_count: outcome ? (item.notes_count || 0) + 1 : item.notes_count,
+            }
+          : item
+      )
+    );
+    if (selectedApp && selectedApp.id === appId) {
+      setSelectedApp(prev =>
+        prev
+          ? {
+              ...prev,
+              last_contacted_at: nowIso,
+              last_contact_channel: channel,
+              last_contact_outcome: outcomeText,
+              notes_count: outcome ? (prev.notes_count || 0) + 1 : prev.notes_count,
+            }
+          : null
+      );
+    }
+
+    if (!authToken) return;
+
+    try {
+      const response = await fetch(`${backendApiOrigin}/api/admin/ats/applications/${appId}/contact-log`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${authToken}`
+        },
+        body: JSON.stringify({
+          channel,
+          outcome: outcome || null,
+          author_name: authEmail || 'Recruiter Admin',
+        })
+      });
+      if (response.status === 401) {
+        clearStaffSession('Your session expired. Sign in again.');
+        return;
+      }
+      if (!response.ok) {
+        setLiveError(`Unable to log contact (HTTP ${response.status}).`);
+      }
+    } catch (error) {
+      setLiveError(error instanceof Error ? error.message : 'Unable to log contact.');
     }
   };
 
@@ -1417,6 +1482,11 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
                           <div className="text-[10px] text-slate-500 mt-0.5">
                             {app.created_at ? new Date(app.created_at).toLocaleDateString() : 'Recent'}
                           </div>
+                          <div className={`text-[10px] mt-0.5 font-medium ${app.last_contacted_at ? 'text-emerald-400' : 'text-slate-500'}`}>
+                            {app.last_contacted_at
+                              ? `Contacted ${new Date(app.last_contacted_at).toLocaleDateString()} (${app.last_contact_channel || 'call'})${app.last_contact_outcome ? ` • ${app.last_contact_outcome}` : ''}`
+                              : 'Not contacted yet'}
+                          </div>
                         </td>
 
                         {/* Target Trade Column */}
@@ -1463,6 +1533,7 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
                                 target="_blank"
                                 rel="noreferrer"
                                 title="Chat on WhatsApp"
+                                onClick={() => handleQuickContactLog(app.id, 'whatsapp')}
                                 className="p-1.5 bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 rounded-lg border border-emerald-500/30 transition"
                               >
                                 <MessageCircle className="w-3.5 h-3.5" />
@@ -1522,6 +1593,7 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
                     href={`https://wa.me/${(selectedApp.candidate_whatsapp || selectedApp.candidate_phone).replace(/[^0-9]/g, '')}`}
                     target="_blank"
                     rel="noreferrer"
+                    onClick={() => handleQuickContactLog(selectedApp.id, 'whatsapp')}
                     className="flex items-center justify-center space-x-1.5 py-2 px-3 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 border border-emerald-500/30 text-xs font-bold transition"
                   >
                     <MessageCircle className="w-3.5 h-3.5" />
@@ -1531,12 +1603,42 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
                 {selectedApp.candidate_phone && (
                   <a
                     href={`tel:${selectedApp.candidate_phone}`}
+                    onClick={() => handleQuickContactLog(selectedApp.id, 'phone')}
                     className="flex items-center justify-center space-x-1.5 py-2 px-3 rounded-lg bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-xs font-bold transition"
                   >
                     <Phone className="w-3.5 h-3.5" />
                     <span>Call Candidate</span>
                   </a>
                 )}
+              </div>
+
+              {/* Last Contacted & One-Click Outcome Log */}
+              <div className="p-3 bg-slate-950 rounded-lg border border-slate-800 space-y-2 text-xs">
+                <div className="flex items-center justify-between gap-2">
+                  <span className="font-semibold text-slate-300">Quick Contact Log</span>
+                  <span className={`text-[10px] font-mono ${selectedApp.last_contacted_at ? 'text-emerald-400' : 'text-slate-500'}`}>
+                    {selectedApp.last_contacted_at
+                      ? `${new Date(selectedApp.last_contacted_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' })} (${selectedApp.last_contact_channel || 'call'})`
+                      : 'Not contacted yet'}
+                  </span>
+                </div>
+                {selectedApp.last_contact_outcome && (
+                  <div className="text-[11px] text-amber-300 font-medium">
+                    Last outcome: {selectedApp.last_contact_outcome}
+                  </div>
+                )}
+                <div className="flex flex-wrap gap-1.5">
+                  {['Interested', 'Did not pick up', 'Callback requested', 'Not reachable'].map(outcome => (
+                    <button
+                      key={outcome}
+                      type="button"
+                      onClick={() => handleQuickContactLog(selectedApp.id, 'phone', outcome)}
+                      className="px-2 py-1 rounded bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 text-[10px] font-semibold transition"
+                    >
+                      {outcome}
+                    </button>
+                  ))}
+                </div>
               </div>
 
               <div className="space-y-2 text-xs bg-slate-950 p-3.5 rounded-lg border border-slate-800">
