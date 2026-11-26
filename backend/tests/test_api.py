@@ -885,6 +885,60 @@ async def test_ats_quick_contact_log_unauthenticated_returns_401(unauthenticated
 
 
 @pytest.mark.asyncio
+async def test_ats_attention_alerts_and_filtering(client, db_session):
+    from datetime import datetime, timedelta, timezone
+
+    now = datetime.now(timezone.utc)
+    c_stale = await _create_candidate(db_session)
+    c_recent_contact = await _create_candidate(db_session)
+    c_hired = await _create_candidate(db_session)
+
+    app_stale = Application(
+        candidate_id=c_stale.id,
+        application_status=ApplicationStatus.new,
+        created_at=now - timedelta(days=8),
+        updated_at=now - timedelta(days=8),
+    )
+    app_recent_contact = Application(
+        candidate_id=c_recent_contact.id,
+        application_status=ApplicationStatus.contacted,
+        created_at=now - timedelta(days=10),
+        updated_at=now - timedelta(days=10),
+        last_contacted_at=now - timedelta(days=1),
+    )
+    app_hired = Application(
+        candidate_id=c_hired.id,
+        application_status=ApplicationStatus.hired,
+        created_at=now - timedelta(days=20),
+        updated_at=now - timedelta(days=20),
+    )
+    db_session.add_all([app_stale, app_recent_contact, app_hired])
+    await db_session.commit()
+    await db_session.refresh(app_stale)
+
+    # Dashboard stats should count 1 needing attention
+    dash_res = await client.get("/api/admin/dashboard")
+    assert dash_res.status_code == 200
+    assert dash_res.json()["data"]["needs_attention"] == 1
+
+    # Filter list with needs_attention_only=true
+    list_res = await client.get("/api/admin/ats/applications?needs_attention_only=true")
+    assert list_res.status_code == 200
+    items = list_res.json()["data"]
+    assert len(items) == 1
+    assert items[0]["id"] == str(app_stale.id)
+    assert items[0]["needs_attention"] is True
+    assert items[0]["days_inactive"] >= 8
+    assert items[0]["attention_reason"]
+
+    # Export respects needs_attention_only=true
+    exp_res = await client.get("/api/admin/ats/applications/export?format=csv&needs_attention_only=true")
+    assert exp_res.status_code == 200
+    lines = [line for line in exp_res.text.strip().splitlines() if line]
+    assert len(lines) == 2
+
+
+@pytest.mark.asyncio
 async def test_add_ats_note(client, db_session):
     candidate = await _create_candidate(db_session)
     application = Application(candidate_id=candidate.id)

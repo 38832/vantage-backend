@@ -101,6 +101,9 @@ export interface ATSApplication {
   last_contacted_at?: string;
   last_contact_channel?: string;
   last_contact_outcome?: string;
+  needs_attention?: boolean;
+  days_inactive?: number;
+  attention_reason?: string;
   created_at?: string;
   notes_count?: number;
 }
@@ -320,6 +323,7 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
   const [minExperienceFilter, setMinExperienceFilter] = useState('');
   const [destinationFilter, setDestinationFilter] = useState('');
   const [passportFilter, setPassportFilter] = useState('');
+  const [attentionOnlyFilter, setAttentionOnlyFilter] = useState(false);
   const [sortBy, setSortBy] = useState<'date_desc' | 'date_asc' | 'experience_desc' | 'experience_asc' | 'name_asc' | 'name_desc'>('date_desc');
   const [selectedApp, setSelectedApp] = useState<ATSApplication | null>(INITIAL_APPLICATIONS[0]);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -746,6 +750,35 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
     return match ? parseInt(match[0], 10) : 0;
   };
 
+  const getAppAttentionInfo = (app: ATSApplication) => {
+    const status = (app.application_status || app.status || 'new').toLowerCase();
+    const activeStatuses = ['new', 'applied', 'contacted', 'shortlisted'];
+    if (!activeStatuses.includes(status)) {
+      return { needsAttention: false, daysInactive: 0, isUrgent: false, reason: '' };
+    }
+    if (typeof app.needs_attention === 'boolean') {
+      const days = typeof app.days_inactive === 'number' ? app.days_inactive : 0;
+      return {
+        needsAttention: app.needs_attention,
+        daysInactive: days,
+        isUrgent: days >= 7,
+        reason: app.attention_reason || (app.needs_attention ? `Inactive for ${days} days` : ''),
+      };
+    }
+    const refIso = app.last_contacted_at || app.created_at;
+    const refMs = refIso ? new Date(refIso).getTime() : Date.now();
+    const daysInactive = Math.max(0, Math.floor((Date.now() - refMs) / 86400000));
+    const needsAttention = daysInactive >= 5;
+    return {
+      needsAttention,
+      daysInactive,
+      isUrgent: daysInactive >= 7,
+      reason: needsAttention
+        ? (app.last_contacted_at ? `No follow-up for ${daysInactive} days` : `No contact for ${daysInactive} days`)
+        : '',
+    };
+  };
+
   const resetFilters = () => {
     setStatusFilter('all');
     setSearchQuery('');
@@ -753,6 +786,7 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
     setMinExperienceFilter('');
     setDestinationFilter('');
     setPassportFilter('');
+    setAttentionOnlyFilter(false);
     setSortBy('date_desc');
   };
 
@@ -789,6 +823,8 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
         if (!passText.includes('renew')) return false;
       }
     }
+
+    if (attentionOnlyFilter && !getAppAttentionInfo(app).needsAttention) return false;
 
     if (searchQuery) {
       const q = searchQuery.toLowerCase();
@@ -1175,6 +1211,17 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
                 {tab.label}
               </button>
             ))}
+            <button
+              type="button"
+              onClick={() => setAttentionOnlyFilter(prev => !prev)}
+              className={`px-3 py-1.5 rounded-lg transition border ${
+                attentionOnlyFilter
+                  ? 'bg-rose-600 text-white border-rose-500 font-bold'
+                  : 'bg-rose-500/10 text-rose-300 border-rose-500/30 hover:bg-rose-500/20'
+              }`}
+            >
+              Needs Attention ({applications.filter(a => getAppAttentionInfo(a).needsAttention).length})
+            </button>
           </div>
 
           <div className="relative w-full md:w-80">
@@ -1487,6 +1534,21 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
                               ? `Contacted ${new Date(app.last_contacted_at).toLocaleDateString()} (${app.last_contact_channel || 'call'})${app.last_contact_outcome ? ` • ${app.last_contact_outcome}` : ''}`
                               : 'Not contacted yet'}
                           </div>
+                          {(() => {
+                            const attn = getAppAttentionInfo(app);
+                            if (!attn.needsAttention) return null;
+                            return (
+                              <div className="mt-1">
+                                <span className={`inline-flex items-center px-1.5 py-0.5 rounded text-[10px] font-bold border ${
+                                  attn.isUrgent
+                                    ? 'bg-rose-500/15 text-rose-300 border-rose-500/30'
+                                    : 'bg-amber-500/15 text-amber-300 border-amber-500/30'
+                                }`}>
+                                  {attn.isUrgent ? 'Overdue' : 'Follow-up'}: {attn.reason}
+                                </span>
+                              </div>
+                            );
+                          })()}
                         </td>
 
                         {/* Target Trade Column */}
@@ -1585,6 +1647,21 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
                 </div>
                 {getStatusBadge(selectedApp.application_status || selectedApp.status)}
               </div>
+
+              {(() => {
+                const attn = getAppAttentionInfo(selectedApp);
+                if (!attn.needsAttention) return null;
+                return (
+                  <div className={`p-3 rounded-lg border text-xs font-semibold flex items-center space-x-2 ${
+                    attn.isUrgent
+                      ? 'bg-rose-500/10 text-rose-300 border-rose-500/30'
+                      : 'bg-amber-500/10 text-amber-300 border-amber-500/30'
+                  }`}>
+                    <AlertCircle className="w-4 h-4 shrink-0" />
+                    <span>{attn.isUrgent ? 'Overdue Follow-Up' : 'Follow-Up Due'}: {attn.reason}</span>
+                  </div>
+                );
+              })()}
 
               {/* Direct Quick Contact Buttons */}
               <div className="grid grid-cols-2 gap-2">

@@ -201,6 +201,9 @@ class ApplicationOut(BaseModel):
     resume_url: Optional[str] = None
     resume_source: Optional[str] = None
     resume_file_name: Optional[str] = None
+    needs_attention: bool = False
+    days_inactive: int = 0
+    attention_reason: Optional[str] = None
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)
@@ -218,6 +221,7 @@ class ATSDashboardStats(BaseModel):
     visa_approved: int
     hired: int
     rejected: int
+    needs_attention: int = 0
 
 
 class QuickContactLogPayload(BaseModel):

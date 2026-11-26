@@ -1,7 +1,7 @@
 import csv
 import io
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Literal
 from xml.sax.saxutils import escape as xml_escape
 from fastapi import APIRouter, Depends, Query, HTTPException, Response, status
@@ -44,6 +44,52 @@ class AdminLogTogglePayload(BaseModel):
     enabled: bool
 
 
+ATTENTION_STALE_DAYS = 5
+ATTENTION_ACTIVE_STATUSES = (
+    ApplicationStatus.new,
+    ApplicationStatus.contacted,
+    ApplicationStatus.shortlisted,
+)
+
+
+def _ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
+    if dt is None:
+        return None
+    return dt if dt.tzinfo is not None else dt.replace(tzinfo=timezone.utc)
+
+
+def _attention_sql_condition(cutoff: datetime):
+    last_activity = func.coalesce(
+        Application.last_contacted_at,
+        Application.updated_at,
+        Application.created_at,
+    )
+    return and_(
+        Application.application_status.in_(ATTENTION_ACTIVE_STATUSES),
+        last_activity <= cutoff,
+    )
+
+
+def _compute_attention_info(app: Application, now: Optional[datetime] = None):
+    if app.application_status not in ATTENTION_ACTIVE_STATUSES:
+        return False, 0, None
+
+    ref_now = now or datetime.now(timezone.utc)
+    activity_dt = _ensure_utc(app.last_contacted_at or app.updated_at or app.created_at)
+    if activity_dt is None:
+        return False, 0, None
+
+    days_inactive = max(0, (ref_now - activity_dt).days)
+    if days_inactive < ATTENTION_STALE_DAYS:
+        return False, days_inactive, None
+
+    if app.last_contacted_at is None:
+        reason = f"No contact for {days_inactive} days"
+    else:
+        reason = f"No follow-up for {days_inactive} days"
+    return True, days_inactive, reason
+
+
 @router.get("/dashboard", response_model=ApiResponse[ATSDashboardStats])
 async def get_ats_dashboard_stats(db: AsyncSession = Depends(get_db)):
     """
@@ -61,6 +107,11 @@ async def get_ats_dashboard_stats(db: AsyncSession = Depends(get_db)):
     total_res = await db.execute(total_query)
     total = total_res.scalar() or 0
 
+    cutoff = datetime.now(timezone.utc) - timedelta(days=ATTENTION_STALE_DAYS)
+    attention_query = select(func.count(Application.id)).where(_attention_sql_condition(cutoff))
+    attention_res = await db.execute(attention_query)
+    needs_attention_count = attention_res.scalar() or 0
+
     stats = ATSDashboardStats(
         total_applications=total,
         new_applications=rows.get(ApplicationStatus.new, 0),
@@ -73,7 +124,8 @@ async def get_ats_dashboard_stats(db: AsyncSession = Depends(get_db)):
         visa_pending=rows.get(ApplicationStatus.visa_pending, 0),
         visa_approved=rows.get(ApplicationStatus.visa_approved, 0),
         hired=rows.get(ApplicationStatus.hired, 0),
-        rejected=rows.get(ApplicationStatus.rejected, 0)
+        rejected=rows.get(ApplicationStatus.rejected, 0),
+        needs_attention=needs_attention_count,
     )
 
     log_query_details(
@@ -119,9 +171,15 @@ def _build_ats_filter_conditions(
     min_experience: Optional[int] = None,
     destination: Optional[str] = None,
     passport_status: Optional[str] = None,
+    needs_attention_only: bool = False,
 ):
     conditions = []
     applied_filters = []
+
+    if needs_attention_only:
+        cutoff = datetime.now(timezone.utc) - timedelta(days=ATTENTION_STALE_DAYS)
+        conditions.append(_attention_sql_condition(cutoff))
+        applied_filters.append(f"needs_attention = true (>= {ATTENTION_STALE_DAYS}d)")
 
     if application_ids:
         conditions.append(Application.id.in_(application_ids))
@@ -337,6 +395,7 @@ async def export_ats_applications(
     min_experience: Optional[int] = Query(None, ge=0),
     destination: Optional[str] = Query(None),
     passport_status: Optional[str] = Query(None),
+    needs_attention_only: bool = Query(False),
     sort_by: ATSSortOption = Query("date_desc"),
     application_ids: Optional[List[uuid.UUID]] = Query(None),
     db: AsyncSession = Depends(get_db),
@@ -353,6 +412,7 @@ async def export_ats_applications(
         min_experience=min_experience,
         destination=destination,
         passport_status=passport_status,
+        needs_attention_only=needs_attention_only,
     )
 
     query = (
@@ -410,6 +470,7 @@ async def list_ats_applications(
     min_experience: Optional[int] = Query(None, ge=0, description="Minimum years of experience"),
     destination: Optional[str] = Query(None, description="Filter by target destination country or city"),
     passport_status: Optional[str] = Query(None, description="Filter by passport readiness (ready, ecr, renewal, none)"),
+    needs_attention_only: bool = Query(False, description="Only return candidates needing follow-up attention"),
     sort_by: ATSSortOption = Query("date_desc", description="Sort candidates by date, experience, or name"),
     page: int = Query(1, ge=1),
     limit: int = Query(20, ge=1, le=100),
@@ -426,6 +487,7 @@ async def list_ats_applications(
         min_experience=min_experience,
         destination=destination,
         passport_status=passport_status,
+        needs_attention_only=needs_attention_only,
     )
 
     base_query = (
@@ -500,6 +562,7 @@ async def list_ats_applications(
             else ("uploaded_file" if (cand and cand.resume_file_name) else "drive_link")
         )
         res_file_name = cand.resume_file_name if cand else None
+        needs_attention, days_inactive, attention_reason = _compute_attention_info(app)
 
         out_list.append(
             ApplicationOut(
@@ -551,6 +614,9 @@ async def list_ats_applications(
                 last_contacted_at=app.last_contacted_at,
                 last_contact_channel=app.last_contact_channel,
                 last_contact_outcome=app.last_contact_outcome,
+                needs_attention=needs_attention,
+                days_inactive=days_inactive,
+                attention_reason=attention_reason,
                 created_at=app.created_at
             )
         )
