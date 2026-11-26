@@ -61,7 +61,6 @@ def _ensure_utc(dt: Optional[datetime]) -> Optional[datetime]:
 def _attention_sql_condition(cutoff: datetime):
     last_activity = func.coalesce(
         Application.last_contacted_at,
-        Application.updated_at,
         Application.created_at,
     )
     return and_(
@@ -75,7 +74,7 @@ def _compute_attention_info(app: Application, now: Optional[datetime] = None):
         return False, 0, None
 
     ref_now = now or datetime.now(timezone.utc)
-    activity_dt = _ensure_utc(app.last_contacted_at or app.updated_at or app.created_at)
+    activity_dt = _ensure_utc(app.last_contacted_at or app.created_at)
     if activity_dt is None:
         return False, 0, None
 
