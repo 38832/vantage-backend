@@ -801,6 +801,38 @@ async def update_application_status(
     })
 
 
+@router.get("/ats/applications/{application_id}/notes", response_model=ApiResponse[List[ATSNoteOut]])
+async def list_ats_notes(
+    application_id: uuid.UUID,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    List chronological internal recruiter notes and audit remarks for an application
+    """
+    app_check = await db.execute(select(Application.id).where(Application.id == application_id))
+    if not app_check.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Application not found")
+
+    notes_query = (
+        select(ATSNote)
+        .where(ATSNote.application_id == application_id)
+        .order_by(ATSNote.created_at.desc())
+    )
+    res = await db.execute(notes_query)
+    notes = res.scalars().all()
+
+    log_query_details(
+        entity="ATSNote",
+        operation="SELECT (Audit Timeline)",
+        filters=[f"application_id = '{application_id}'"],
+        sorting=["ATSNote.created_at DESC"],
+        returned_count=len(notes),
+        total_count=len(notes),
+    )
+
+    return ApiResponse.ok(notes)
+
+
 @router.post("/ats/applications/{application_id}/notes", response_model=ApiResponse[ATSNoteOut])
 async def add_ats_note(
     application_id: uuid.UUID,

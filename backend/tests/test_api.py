@@ -1045,6 +1045,54 @@ async def test_ats_rejection_reason_too_long_returns_422(client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_list_ats_notes_chronological(client, db_session):
+    from datetime import datetime, timedelta, timezone
+    from app.models.ats_note import ATSNote
+
+    candidate = await _create_candidate(db_session)
+    application = Application(candidate_id=candidate.id)
+    db_session.add(application)
+    await db_session.commit()
+    await db_session.refresh(application)
+
+    t0 = datetime(2026, 11, 20, 9, 0, tzinfo=timezone.utc)
+    n1 = ATSNote(
+        application_id=application.id,
+        author_name="Nouman",
+        note="[Salary] Expected SAR 3,200 + food",
+        created_at=t0,
+    )
+    n2 = ATSNote(
+        application_id=application.id,
+        author_name="Sarah",
+        note="[Medical] GAMCA fit certificate uploaded",
+        created_at=t0 + timedelta(hours=2),
+    )
+    db_session.add_all([n1, n2])
+    await db_session.commit()
+
+    res = await client.get(f"/api/admin/ats/applications/{application.id}/notes")
+    assert res.status_code == 200
+    notes = res.json()["data"]
+    assert len(notes) == 2
+    assert notes[0]["author_name"] == "Sarah"
+    assert notes[0]["note"] == "[Medical] GAMCA fit certificate uploaded"
+    assert notes[1]["author_name"] == "Nouman"
+
+
+@pytest.mark.asyncio
+async def test_list_ats_notes_unknown_application_returns_404(client):
+    response = await client.get(f"/api/admin/ats/applications/{uuid.uuid4()}/notes")
+    assert response.status_code == 404
+
+
+@pytest.mark.asyncio
+async def test_list_ats_notes_unauthenticated_returns_401(unauthenticated_client):
+    response = await unauthenticated_client.get(f"/api/admin/ats/applications/{uuid.uuid4()}/notes")
+    assert response.status_code == 401
+
+
+@pytest.mark.asyncio
 async def test_add_ats_note(client, db_session):
     candidate = await _create_candidate(db_session)
     application = Application(candidate_id=candidate.id)

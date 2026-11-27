@@ -34,6 +34,14 @@ import {
   Download
 } from 'lucide-react';
 
+export interface ATSNoteEntry {
+  id: string;
+  application_id?: string;
+  author_name: string;
+  note: string;
+  created_at: string;
+}
+
 export interface ATSApplication {
   id: string;
   candidate_id?: string;
@@ -331,6 +339,9 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
   const [bulkStatusTarget, setBulkStatusTarget] = useState<string>('shortlisted');
   const [isBulkUpdating, setIsBulkUpdating] = useState<boolean>(false);
   const [newNoteText, setNewNoteText] = useState('');
+  const [noteTopic, setNoteTopic] = useState('General');
+  const [atsNotes, setAtsNotes] = useState<ATSNoteEntry[]>([]);
+  const [isLoadingNotes, setIsLoadingNotes] = useState(false);
   const [copiedLink, setCopiedLink] = useState<string | null>(null);
 
   const [authEmail, setAuthEmail] = useState('');
@@ -396,6 +407,47 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
   useEffect(() => {
     if (authToken) fetchLiveApplications();
   }, [authToken]);
+
+  useEffect(() => {
+    const fetchNotes = async () => {
+      if (!selectedApp) {
+        setAtsNotes([]);
+        return;
+      }
+      if (!authToken) {
+        setAtsNotes(
+          selectedApp.interview_notes
+            ? [
+                {
+                  id: 'seed-note',
+                  author_name: selectedApp.recruiter_assigned || 'Recruiter',
+                  note: selectedApp.interview_notes,
+                  created_at: selectedApp.created_at || new Date().toISOString(),
+                },
+              ]
+            : []
+        );
+        return;
+      }
+      setIsLoadingNotes(true);
+      try {
+        const res = await fetch(`${backendApiOrigin}/api/admin/ats/applications/${selectedApp.id}/notes`, {
+          headers: { Accept: 'application/json', Authorization: `Bearer ${authToken}` },
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (Array.isArray(json.data)) {
+            setAtsNotes(json.data);
+          }
+        }
+      } catch {
+        // ignore transient network errors
+      } finally {
+        setIsLoadingNotes(false);
+      }
+    };
+    fetchNotes();
+  }, [selectedApp?.id, authToken]);
 
   const clearStaffSession = (message?: string) => {
     setAuthToken(null);
@@ -665,7 +717,16 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
     e.preventDefault();
     if (!newNoteText.trim() || !selectedApp) return;
 
-    const note = newNoteText;
+    const rawNote = newNoteText.trim();
+    const note = noteTopic !== 'General' ? `[${noteTopic}] ${rawNote}` : rawNote;
+    const author = authEmail || 'Recruiter Admin';
+    const optimistic: ATSNoteEntry = {
+      id: `local-${Date.now()}`,
+      author_name: author,
+      note,
+      created_at: new Date().toISOString(),
+    };
+    setAtsNotes(prev => [optimistic, ...prev]);
     setApplications(prev =>
       prev.map(item =>
         item.id === selectedApp.id
@@ -690,7 +751,7 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
           'Authorization': `Bearer ${authToken}`
         },
         body: JSON.stringify({
-          author_name: 'Recruiter Admin',
+          author_name: author,
           note: note
         })
       });
@@ -698,7 +759,14 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
         clearStaffSession('Your session expired. Sign in again.');
         return;
       }
-      if (!response.ok) setLiveError(`Unable to save the note (HTTP ${response.status}).`);
+      if (response.ok) {
+        const json = await response.json();
+        if (json?.data) {
+          setAtsNotes(prev => [json.data, ...prev.filter(n => n.id !== optimistic.id)]);
+        }
+      } else {
+        setLiveError(`Unable to save the note (HTTP ${response.status}).`);
+      }
     } catch (error) {
       setLiveError(error instanceof Error ? error.message : 'Unable to save the note.');
     }
@@ -1864,24 +1932,31 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
                 </select>
               </div>
 
-              {/* Recruiter Audit Notes */}
-              <form onSubmit={handleAddNote} className="space-y-2 pt-2 border-t border-slate-800">
+              {/* Recruiter Remarks & Internal Audit Timeline */}
+              <form onSubmit={handleAddNote} className="space-y-2.5 pt-2 border-t border-slate-800">
                 <div className="flex items-center justify-between text-xs font-semibold text-slate-300">
                   <span className="flex items-center space-x-1.5">
                     <MessageSquare className="w-3.5 h-3.5 text-amber-400" />
-                    <span>Recruiter Audit Notes ({selectedApp.notes_count || 1})</span>
+                    <span>Audit Timeline ({atsNotes.length || selectedApp.notes_count || 0})</span>
                   </span>
-                  <span className="text-[10px] font-mono text-cyan-400">POST /notes</span>
+                  <span className="text-[10px] font-mono text-cyan-400">GET / POST /notes</span>
                 </div>
-                {selectedApp.interview_notes && (
-                  <div className="p-2.5 bg-slate-950 rounded-lg text-xs text-slate-300 italic border border-slate-800">
-                    "{selectedApp.interview_notes}"
-                  </div>
-                )}
-                <div className="flex space-x-2">
+                <div className="flex flex-wrap gap-1.5">
+                  <select
+                    aria-label="Remark topic"
+                    value={noteTopic}
+                    onChange={e => setNoteTopic(e.target.value)}
+                    className="bg-slate-800 border border-slate-700 rounded-lg px-2 py-1.5 text-[11px] text-slate-200 focus:outline-none focus:border-amber-500"
+                  >
+                    <option value="General">General</option>
+                    <option value="Salary">Salary</option>
+                    <option value="Interview">Interview</option>
+                    <option value="Medical">Medical</option>
+                    <option value="Documents">Documents</option>
+                  </select>
                   <input
                     type="text"
-                    placeholder="Add recruiter comment..."
+                    placeholder="Add recruiter remark..."
                     value={newNoteText}
                     onChange={e => setNewNoteText(e.target.value)}
                     className="flex-1 bg-slate-800 border border-slate-700 rounded-lg px-3 py-1.5 text-xs text-white focus:outline-none focus:border-amber-500"
@@ -1892,6 +1967,23 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
                   >
                     <Send className="w-3 h-3" />
                   </button>
+                </div>
+                <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                  {isLoadingNotes ? (
+                    <p className="text-[11px] text-slate-500 italic">Loading audit timeline...</p>
+                  ) : atsNotes.length === 0 ? (
+                    <p className="text-[11px] text-slate-500 italic">No remarks recorded yet.</p>
+                  ) : (
+                    atsNotes.map(n => (
+                      <div key={n.id} className="p-2.5 bg-slate-950 rounded-lg text-xs border border-slate-800">
+                        <div className="flex items-center justify-between text-[10px] text-slate-400 mb-1">
+                          <span className="font-bold text-amber-400">{n.author_name}</span>
+                          <span>{n.created_at ? new Date(n.created_at).toLocaleString([], { dateStyle: 'short', timeStyle: 'short' }) : 'Recent'}</span>
+                        </div>
+                        <p className="text-slate-200 leading-relaxed">{n.note}</p>
+                      </div>
+                    ))
+                  )}
                 </div>
               </form>
             </div>
