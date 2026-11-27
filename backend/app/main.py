@@ -1,4 +1,6 @@
+from contextlib import asynccontextmanager
 import json
+import logging
 import time
 from typing import Optional
 from fastapi import FastAPI, Request, Response, Body, Depends
@@ -7,6 +9,8 @@ from pydantic import BaseModel
 
 from app.core.config import settings
 from app.core.auth import get_current_admin
+from app.db.session import AsyncSessionLocal
+from app.api.routes.jobs import ensure_default_categories
 from app.core.logger import (
     log_http_request,
     log_http_response,
@@ -15,12 +19,26 @@ from app.core.logger import (
 )
 from app.api.routes import health, jobs, applications, inquiries, admin, auth
 
+logger = logging.getLogger(__name__)
+
+
+@asynccontextmanager
+async def lifespan(_app: FastAPI):
+    try:
+        async with AsyncSessionLocal() as db:
+            await ensure_default_categories(db)
+    except Exception as exc:
+        logger.warning("Skipping default category seeding at startup: %s", exc)
+    yield
+
+
 app = FastAPI(
     title="UGETJOB — Global Workforce Solutions API",
     description="Backend API for overseas recruitment, candidate ATS pipeline, employer manpower requests, and Supabase integration.",
     version="1.0.0",
     docs_url="/docs",
-    redoc_url="/redoc"
+    redoc_url="/redoc",
+    lifespan=lifespan,
 )
 
 # CORS Middleware Configuration (SEC-02: Restricted strict origin policy)

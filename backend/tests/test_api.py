@@ -56,6 +56,9 @@ async def test_health(client):
 
 @pytest.mark.asyncio
 async def test_categories_and_empty_categories(client, db_session):
+    from app.api.routes.jobs import ensure_default_categories
+
+    await ensure_default_categories(db_session)
     response = await client.get("/api/categories")
     assert response.status_code == 200
     assert response.json()["success"] is True
@@ -128,7 +131,7 @@ async def test_job_detail_and_not_found(client, db_session):
 @pytest.mark.asyncio
 async def test_create_published_job(client, db_session):
     category = await seed_category(db_session)
-    response = await client.post("/api/jobs", json={
+    response = await client.post("/api/admin/jobs", json={
         "category_id": str(category.id),
         "title": "Site Electrician",
         "company_name": "Gulf Contractors",
@@ -148,11 +151,14 @@ async def test_create_published_job(client, db_session):
 
 @pytest.mark.asyncio
 async def test_create_job_parses_salary_and_categories(client, db_session):
+    from app.api.routes.jobs import ensure_default_categories
+
+    await ensure_default_categories(db_session)
     category_response = await client.get("/api/categories")
     categories = category_response.json()["data"]
     technical = next(category for category in categories if category["slug"] == "technical")
 
-    single_salary = await client.post("/api/jobs", json={
+    single_salary = await client.post("/api/admin/jobs", json={
         "category_id": str(technical["id"]),
         "title": "Demo Urgent",
         "company_name": "ARAMCO",
@@ -166,7 +172,7 @@ async def test_create_job_parses_salary_and_categories(client, db_session):
     assert single_salary.json()["data"]["salary_currency"] == "SAR"
     assert single_salary.json()["data"]["salary_max"] is None
 
-    salary_range = await client.post("/api/jobs", json={
+    salary_range = await client.post("/api/admin/jobs", json={
         "category_id": str(technical["id"]),
         "title": "Software Developer",
         "company_name": "Société d'Exploitation de la Tour Eiffel (SETE)",
@@ -181,7 +187,7 @@ async def test_create_job_parses_salary_and_categories(client, db_session):
     assert float(data["salary_min"]) == 55000
     assert float(data["salary_max"]) == 75000
 
-    no_salary = await client.post("/api/jobs", json={
+    no_salary = await client.post("/api/admin/jobs", json={
         "category_id": str(technical["id"]),
         "title": "Entry Level",
         "company_name": "Example",
@@ -1539,7 +1545,7 @@ def test_supabase_auth_client_caching_and_smart_key_resolution(monkeypatch):
 @pytest.mark.asyncio
 async def test_post_jobs_unauthenticated_returns_401(unauthenticated_client, db_session):
     category = await seed_category(db_session)
-    response = await unauthenticated_client.post("/api/jobs", json={
+    response = await unauthenticated_client.post("/api/admin/jobs", json={
         "category_id": str(category.id),
         "title": "Unauthorized Vacancy",
         "company_name": "Rogue Corp",
@@ -1560,7 +1566,7 @@ async def test_post_jobs_candidate_role_returns_403(unauthenticated_client, db_s
     })
     category = await seed_category(db_session)
     response = await unauthenticated_client.post(
-        "/api/jobs",
+        "/api/admin/jobs",
         json={
             "category_id": str(category.id),
             "title": "Unauthorized Vacancy",
@@ -1584,7 +1590,7 @@ async def test_post_jobs_admin_role_succeeds(unauthenticated_client, db_session)
     })
     category = await seed_category(db_session)
     response = await unauthenticated_client.post(
-        "/api/jobs",
+        "/api/admin/jobs",
         json={
             "category_id": str(category.id),
             "title": "Certified Crane Operator",

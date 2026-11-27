@@ -5,11 +5,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, and_
 from sqlalchemy.orm import selectinload
 
-from app.api.deps import get_db, get_current_admin, AdminUser
+from app.api.deps import get_db
 from app.models.job import Job, JobCategory, JobStatus
 from app.schemas.response import ApiResponse, MetaData
-from app.schemas.job import JobCategoryOut, JobCreate, JobListItemOut, JobDetailOut
-from app.core.logger import log_query_details, log_mutation_details
+from app.schemas.job import JobCategoryOut, JobListItemOut, JobDetailOut
+from app.core.logger import log_query_details
 
 router = APIRouter()
 
@@ -32,43 +32,11 @@ async def ensure_default_categories(db: AsyncSession):
             db.add(JobCategory(slug=slug, name=name))
     await db.commit()
 
-@router.post("/jobs", response_model=ApiResponse[JobDetailOut])
-async def create_job(
-    payload: JobCreate,
-    db: AsyncSession = Depends(get_db),
-    current_admin: AdminUser = Depends(get_current_admin),
-):
-    """
-    Create and publish a new job opening (Protected: Staff / Admin only)
-    """
-    category = await db.get(JobCategory, payload.category_id)
-    if not category or not category.is_active:
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail="Job category does not exist or is inactive",
-        )
-
-    job = Job(**payload.model_dump(exclude={"salary"}), status=JobStatus.published)
-    db.add(job)
-    await db.commit()
-    await db.refresh(job)
-
-    log_mutation_details(
-        entity_name="Job",
-        entity_id=job.id,
-        operation="CREATE",
-        changes=payload.model_dump(exclude={"salary"}),
-        details=f"Job Title: '{job.title}', Published by: {current_admin.email} ({current_admin.role})",
-    )
-
-    return ApiResponse.ok(job)
-
 @router.get("/categories", response_model=ApiResponse[List[JobCategoryOut]])
 async def get_categories(db: AsyncSession = Depends(get_db)):
     """
     Get all active job categories and sectors
     """
-    await ensure_default_categories(db)
     query = select(JobCategory).where(JobCategory.is_active == True).order_by(JobCategory.name)
     result = await db.execute(query)
     categories = result.scalars().all()
