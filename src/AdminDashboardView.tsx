@@ -117,215 +117,8 @@ export interface ATSApplication {
   notes_count?: number;
 }
 
-const INITIAL_APPLICATIONS: ATSApplication[] = [
-  {
-    id: '322dd461-767a-4d8b-b3af-2d12771aa7d3',
-    candidate_id: 'c201-767a-4d8b-b3af-2d12771aa7d3',
-    candidate_name: 'Abutalha Shaikh',
-    name: 'Abutalha Shaikh',
-    full_name: 'Abutalha Shaikh',
-    candidate_phone: '+919766065167',
-    phone: '+919766065167',
-    candidate_whatsapp: '+919766065167',
-    whatsapp: '+919766065167',
-    candidate_email: 'abutalha11503@gmail.com',
-    email: 'abutalha11503@gmail.com',
-    candidate_role: 'HVAC Chiller Specialist',
-    candidate_job_title: 'HVAC Chiller Specialist',
-    target_trade: 'HVAC Chiller Specialist',
-    trade: 'HVAC Chiller Specialist',
-    candidate_nationality: 'Indian',
-    nationality: 'Indian',
-    job_title: 'HVAC Chiller Specialist',
-    company_name: 'Gulf Facilities Management LLC',
-    destination: 'United Arab Emirates',
-    destination_country: 'United Arab Emirates',
-    location_country: 'United Arab Emirates',
-    experience_years: 5,
-    years_experience: 5,
-    experience: '5 yrs GCC',
-    passport: 'ready',
-    passport_status: 'ready',
-    document_status: 'ready',
-    medical_status: 'cleared',
-    visa_status: 'ready_for_submission',
-    application_status: 'new',
-    status: 'new',
-    recruiter_assigned: 'Nouman Qureshi',
-    interview_notes: 'Uploaded verified credentials to Supabase Storage. Ready for client panel.',
-    resume_url: 'https://ysaggxhpmmxbsjygucny.supabase.co/storage/v1/object/sign/candidate-resumes/322dd461-767a-4d8b-b3af-2d12771aa7d3/Abutalha_Shaikh_HVAC_Resume.pdf',
-    resume_source: 'uploaded_file',
-    resume_file_name: 'Abutalha_Shaikh_HVAC_Resume.pdf',
-    created_at: '2026-10-31 08:17',
-    notes_count: 2
-  },
-  {
-    id: '455ff123-888b-4c22-b444-123456789abc',
-    candidate_id: 'c202-888b-4c22-b444-123456789abc',
-    candidate_name: 'Tariq Mehmood',
-    name: 'Tariq Mehmood',
-    full_name: 'Tariq Mehmood',
-    candidate_phone: '+923018899123',
-    phone: '+923018899123',
-    candidate_whatsapp: '+923018899123',
-    whatsapp: '+923018899123',
-    candidate_email: 'tariq.civil@example.com',
-    email: 'tariq.civil@example.com',
-    candidate_role: 'Civil QA Inspector',
-    candidate_job_title: 'Civil QA Inspector',
-    target_trade: 'Civil QA Inspector',
-    trade: 'Civil QA Inspector',
-    candidate_nationality: 'Pakistani',
-    nationality: 'Pakistani',
-    job_title: 'General Deployment Application',
-    company_name: "Nouman's Consultancy Pool",
-    destination: 'Saudi Arabia',
-    destination_country: 'Saudi Arabia',
-    location_country: 'Saudi Arabia',
-    experience_years: 6,
-    years_experience: 6,
-    experience: '6 yrs',
-    passport: 'ready',
-    passport_status: 'ready',
-    document_status: 'ready',
-    medical_status: 'pending',
-    visa_status: 'not_started',
-    application_status: 'shortlisted',
-    status: 'shortlisted',
-    recruiter_assigned: 'Nouman Qureshi',
-    interview_notes: 'Aramco highway inspection project experience.',
-    resume_url: 'https://drive.google.com/file/d/1Tariq_Civil_QA_CV/view',
-    resume_source: 'drive_link',
-    created_at: '2026-10-31 06:45',
-    notes_count: 3
-  },
-  {
-    id: 'a101-9876-4321-1111',
-    candidate_id: 'c101-1111-2222',
-    candidate_name: 'Mohd Basheer Khan',
-    name: 'Mohd Basheer Khan',
-    full_name: 'Mohd Basheer Khan',
-    candidate_phone: '+971501234567',
-    phone: '+971501234567',
-    candidate_whatsapp: '+971501234567',
-    candidate_email: 'basheer.mep@example.com',
-    candidate_role: 'Substation Electrical Foreman',
-    target_trade: 'Substation Electrical Foreman',
-    candidate_nationality: 'Indian',
-    job_title: 'Substation Electrical Foreman',
-    company_name: 'KSA Red Sea Project (Al-Bawani)',
-    destination: 'Saudi Arabia',
-    destination_country: 'Saudi Arabia',
-    location_country: 'Saudi Arabia',
-    experience_years: 7,
-    experience: '7 yrs GCC',
-    passport_status: 'ready',
-    medical_status: 'gamca_fit',
-    visa_status: 'visa_stamped',
-    application_status: 'shortlisted',
-    recruiter_assigned: 'Nouman Qureshi',
-    interview_date: '2026-11-04 10:00 AM UTC',
-    interview_notes: 'Technical credentials vetted; 7 yrs GCC high-voltage substation experience.',
-    resume_url: 'https://drive.google.com/file/d/1A2B3C_basheer_cv/view',
-    resume_source: 'drive_link',
-    created_at: '2026-10-30 09:15',
-    notes_count: 3
-  },
-  {
-    id: 'a102-9876-4321-2222',
-    candidate_id: 'c102-1111-2222',
-    candidate_name: 'Rashid Al-Farooq',
-    name: 'Rashid Al-Farooq',
-    candidate_phone: '+923009876543',
-    phone: '+923009876543',
-    candidate_whatsapp: '+923009876543',
-    candidate_email: 'rashid.welder@example.com',
-    candidate_role: '6G TIG & ARC Welder',
-    target_trade: '6G Pipeline Welder (Aramco Standard)',
-    candidate_nationality: 'Pakistani',
-    job_title: '6G Pipeline Welder (Aramco Standard)',
-    company_name: 'Al-Khobar Oil & Gas EPC',
-    destination: 'Saudi Arabia',
-    destination_country: 'Saudi Arabia',
-    location_country: 'Saudi Arabia',
-    experience_years: 8,
-    experience: '8 yrs',
-    passport_status: 'ready',
-    medical_status: 'fit',
-    visa_status: 'in_process',
-    application_status: 'interview_scheduled',
-    recruiter_assigned: 'Nouman Qureshi',
-    interview_date: '2026-11-03 02:30 PM UTC',
-    interview_notes: 'WQT testing scheduled at Trade Testing Center.',
-    resume_url: 'https://drive.google.com/file/d/1X9Y8Z_rashid_welder/view',
-    resume_source: 'drive_link',
-    created_at: '2026-10-29 14:20',
-    notes_count: 2
-  },
-  {
-    id: 'a103-9876-4321-3333',
-    candidate_id: 'c103-1111-2222',
-    candidate_name: 'Deepak Sharma',
-    name: 'Deepak Sharma',
-    candidate_phone: '+919820011223',
-    phone: '+919820011223',
-    candidate_whatsapp: '+919820011223',
-    candidate_email: 'deepak.chiller@example.com',
-    candidate_role: 'Central Chiller HVAC Technician',
-    target_trade: 'HVAC Chiller Plant Technician',
-    candidate_nationality: 'Indian',
-    job_title: 'HVAC Chiller Plant Technician',
-    company_name: 'Qatar Metro FM Services',
-    destination: 'Qatar',
-    destination_country: 'Qatar',
-    location_country: 'Qatar',
-    experience_years: 6,
-    experience: '6 yrs',
-    passport_status: 'ready',
-    medical_status: 'gamca_cleared',
-    visa_status: 'visa_pending',
-    application_status: 'visa_pending',
-    recruiter_assigned: 'Sarah Jenkins',
-    interview_notes: 'Client interview passed. GAMCA medical cleared fit. Visa submission ongoing.',
-    resume_url: 'https://ysaggxhpmmxbsjygucny.supabase.co/storage/v1/object/sign/candidate-resumes/deepak_hvac_2026.pdf',
-    resume_source: 'uploaded_file',
-    created_at: '2026-10-25 11:00',
-    notes_count: 5
-  },
-  {
-    id: 'a105-9876-4321-5555',
-    candidate_id: 'c105-1111-2222',
-    candidate_name: 'Farhan Tariq',
-    name: 'Farhan Tariq',
-    candidate_phone: '+923214455667',
-    phone: '+923214455667',
-    candidate_whatsapp: '+923214455667',
-    candidate_email: 'farhan.scaff@example.com',
-    candidate_role: 'CISRS Certified Scaffolder',
-    target_trade: 'Scaffolding Inspector',
-    candidate_nationality: 'Pakistani',
-    job_title: 'Scaffolding Inspector',
-    company_name: 'Kuwait Petrochemical Plant',
-    destination: 'Kuwait',
-    destination_country: 'Kuwait',
-    location_country: 'Kuwait',
-    experience_years: 4,
-    experience: '4 yrs',
-    passport_status: 'ready',
-    medical_status: 'fit',
-    visa_status: 'issued',
-    application_status: 'hired',
-    recruiter_assigned: 'Nouman Qureshi',
-    interview_notes: 'Deployed to Kuwait site on Oct 28.',
-    resume_url: 'https://ysaggxhpmmxbsjygucny.supabase.co/storage/v1/object/sign/candidate-resumes/farhan_scaffolding.pdf',
-    resume_source: 'uploaded_file',
-    created_at: '2026-10-18 08:00',
-    notes_count: 6
-  }
-];
-
 export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void; copiedSnippet: boolean }) {
-  const [applications, setApplications] = useState<ATSApplication[]>(INITIAL_APPLICATIONS);
+  const [applications, setApplications] = useState<ATSApplication[]>([]);
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
   const [tradeFilter, setTradeFilter] = useState('');
@@ -334,7 +127,7 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
   const [passportFilter, setPassportFilter] = useState('');
   const [attentionOnlyFilter, setAttentionOnlyFilter] = useState(false);
   const [sortBy, setSortBy] = useState<'date_desc' | 'date_asc' | 'experience_desc' | 'experience_asc' | 'name_asc' | 'name_desc'>('date_desc');
-  const [selectedApp, setSelectedApp] = useState<ATSApplication | null>(INITIAL_APPLICATIONS[0]);
+  const [selectedApp, setSelectedApp] = useState<ATSApplication | null>(null);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [bulkStatusTarget, setBulkStatusTarget] = useState<string>('shortlisted');
   const [isBulkUpdating, setIsBulkUpdating] = useState<boolean>(false);
@@ -382,11 +175,14 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
       if (response.ok) {
         const json = await response.json();
         const records = json.data || (Array.isArray(json) ? json : null);
-        if (Array.isArray(records) && records.length > 0) {
+        if (Array.isArray(records)) {
           setApplications(records);
           setLiveConnected(true);
           setLastSyncTime(new Date().toLocaleTimeString());
-          if (!selectedApp || !records.find((r: ATSApplication) => r.id === selectedApp.id)) {
+          if (records.length === 0) {
+            setSelectedApp(null);
+            setSelectedIds([]);
+          } else if (!selectedApp || !records.find((r: ATSApplication) => r.id === selectedApp.id)) {
             setSelectedApp(records[0]);
           }
         } else {
@@ -453,8 +249,10 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
     setAuthToken(null);
     setAuthRole(null);
     setAuthPassword('');
-    setApplications(INITIAL_APPLICATIONS);
-    setSelectedApp(INITIAL_APPLICATIONS[0]);
+    setApplications([]);
+    setSelectedApp(null);
+    setSelectedIds([]);
+    setAtsNotes([]);
     setLiveConnected(false);
     setLastSyncTime(null);
     setAuthError(message || null);
@@ -1089,15 +887,17 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
               <span className="text-slate-300 font-medium">
                 {liveConnected ? (
                   <>Connected to FastAPI (<code className="text-cyan-400">http://localhost:8000/api/admin/ats/applications</code>)</>
+                ) : isLoadingLive ? (
+                  <>Loading live applications from FastAPI...</>
                 ) : (
-                  <>Backend Preview Mode (Run <code className="text-amber-400">uvicorn app.main:app --port 8000 --reload</code> for live data)</>
+                  <>Not connected (Sign in above and run <code className="text-amber-400">uvicorn app.main:app --port 8000 --reload</code> for live data)</>
                 )}
               </span>
             </div>
 
             <div className="inline-flex items-center space-x-1.5 px-2.5 py-0.5 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-400 text-[11px] font-mono">
               <Lock className="w-3 h-3 text-emerald-400" />
-              <span>{authToken ? `RBAC Protected: JWT (${(authRole || '').toUpperCase()})` : 'Preview mode: sign in for live admin data'}</span>
+              <span>{authToken ? `RBAC Protected: JWT (${(authRole || '').toUpperCase()})` : 'Authentication required for live admin data'}</span>
             </div>
           </div>
 
@@ -1723,7 +1523,43 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-800/60 text-slate-300">
-                {filteredApps.length === 0 ? (
+                {isLoadingLive ? (
+                  <tr>
+                    <td colSpan={8} className="py-10 text-center text-slate-400">
+                      <div className="inline-flex items-center space-x-2">
+                        <RefreshCw className="w-4 h-4 animate-spin text-amber-400" />
+                        <span>Loading candidate applications...</span>
+                      </div>
+                    </td>
+                  </tr>
+                ) : !authToken ? (
+                  <tr>
+                    <td colSpan={8} className="py-10 text-center text-slate-400">
+                      Sign in with your staff account above to load live candidate applications.
+                    </td>
+                  </tr>
+                ) : liveError ? (
+                  <tr>
+                    <td colSpan={8} className="py-10 text-center text-rose-400">
+                      <div className="flex flex-col items-center space-y-2">
+                        <span>{liveError}</span>
+                        <button
+                          type="button"
+                          onClick={fetchLiveApplications}
+                          className="px-3 py-1 rounded-lg bg-slate-800 hover:bg-slate-700 text-amber-300 border border-slate-700 text-xs font-semibold transition"
+                        >
+                          Retry
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ) : applications.length === 0 ? (
+                  <tr>
+                    <td colSpan={8} className="py-10 text-center text-slate-500">
+                      No candidate applications found in the backend.
+                    </td>
+                  </tr>
+                ) : filteredApps.length === 0 ? (
                   <tr>
                     <td colSpan={8} className="py-8 text-center text-slate-500">
                       No candidate applications found matching the selected filter.

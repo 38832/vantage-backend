@@ -370,15 +370,15 @@ const ENDPOINTS: Endpoint[] = [
       success: true,
       data: [
         {
-          id: '322dd461-767a-4d8b-b3af-2d12771aa7d3',
-          candidate_id: 'c201-767a-4d8b-b3af-2d12771aa7d3',
-          candidate_name: 'Abutalha Shaikh',
-          name: 'Abutalha Shaikh',
-          full_name: 'Abutalha Shaikh',
-          candidate_phone: '+919766065167',
-          phone: '+919766065167',
-          candidate_whatsapp: '+919766065167',
-          candidate_email: 'abutalha11503@gmail.com',
+          id: '00000000-0000-0000-0000-000000000001',
+          candidate_id: '00000000-0000-0000-0000-000000000002',
+          candidate_name: 'Sample Candidate',
+          name: 'Sample Candidate',
+          full_name: 'Sample Candidate',
+          candidate_phone: '+971500000000',
+          phone: '+971500000000',
+          candidate_whatsapp: '+971500000000',
+          candidate_email: 'candidate@example.com',
           candidate_role: 'HVAC Chiller Specialist',
           candidate_job_title: 'HVAC Chiller Specialist',
           target_trade: 'HVAC Chiller Specialist',
@@ -398,7 +398,7 @@ const ENDPOINTS: Endpoint[] = [
           application_status: 'new',
           status: 'new',
           recruiter_assigned: 'Nouman Qureshi',
-          resume_url: 'https://ysaggxhpmmxbsjygucny.supabase.co/storage/v1/object/sign/candidate-resumes/322dd461-767a-4d8b-b3af-2d12771aa7d3/Abutalha_Shaikh_HVAC_Resume.pdf',
+          resume_url: 'https://xxxx.supabase.co/storage/v1/object/sign/candidate-resumes/example/Sample_HVAC_Resume.pdf',
           resume_source: 'uploaded_file',
           created_at: '2026-10-31T08:17:50.765281Z'
         }
