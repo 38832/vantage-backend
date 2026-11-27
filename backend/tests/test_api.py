@@ -2228,6 +2228,37 @@ def test_production_rejects_mock_storage():
         )
 
 
+@pytest.mark.asyncio
+async def test_rate_limiter_shares_state_across_worker_instances(db_session):
+    from starlette.requests import Request
+    from fastapi import HTTPException
+    from app.core.rate_limiter import DatabaseRateLimiter
+
+    worker_1 = DatabaseRateLimiter(requests_limit=3, window_seconds=60, namespace="multi_worker_test")
+    worker_2 = DatabaseRateLimiter(requests_limit=3, window_seconds=60, namespace="multi_worker_test")
+
+    scope = {
+        "type": "http",
+        "method": "POST",
+        "path": "/api/inquiries/service",
+        "headers": [(b"x-forwarded-for", b"203.0.113.77")],
+        "client": ("127.0.0.1", 12345),
+    }
+    req = Request(scope)
+
+    # 2 requests hit worker 1, 1 hits worker 2 -> total 3 allowed
+    await worker_1.check_rate_limit(req, db=db_session)
+    await worker_1.check_rate_limit(req, db=db_session)
+    await worker_2.check_rate_limit(req, db=db_session)
+
+    # 4th request hits worker 2 -> blocked because DB state is shared
+    with pytest.raises(HTTPException) as exc_info:
+        await worker_2.check_rate_limit(req, db=db_session)
+    assert exc_info.value.status_code == 429
+    assert "retry-after" in {k.lower() for k in exc_info.value.headers.keys()}
+
+
+
 
 
 

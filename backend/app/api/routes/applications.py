@@ -28,7 +28,7 @@ async def quick_apply(
     """
     Standard JSON candidate quick-apply route supporting Drive links and external URLs
     """
-    await public_submission_limiter.check_rate_limit(request)
+    await public_submission_limiter.check_rate_limit(request, db=db)
     # Verify job if provided
     if payload.job_id:
         job_check = await db.execute(select(Job.id).where(Job.id == payload.job_id))
@@ -185,7 +185,7 @@ async def quick_apply_multipart(
     """
     Multipart quick-apply route accepting direct PDF/DOCX file upload to Supabase Storage or external drive link
     """
-    await public_submission_limiter.check_rate_limit(request)
+    await public_submission_limiter.check_rate_limit(request, db=db)
     job_uuid = None
     if job_id:
         try:
@@ -394,7 +394,7 @@ async def upload_application_document(
     """
     Upload supporting document (passport copy, medical clearance, trade certification)
     """
-    await public_submission_limiter.check_rate_limit(request)
+    await public_submission_limiter.check_rate_limit(request, db=db)
     app_query = select(Application).where(Application.id == application_id)
     app_res = await db.execute(app_query)
     application = app_res.scalar_one_or_none()

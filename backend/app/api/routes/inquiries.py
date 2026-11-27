@@ -22,7 +22,7 @@ async def create_employer_inquiry(
     """
     Inbound Employer Manpower Request
     """
-    await public_submission_limiter.check_rate_limit(request)
+    await public_submission_limiter.check_rate_limit(request, db=db)
     # Link or register employer company
     emp_query = select(Employer).where(Employer.email == payload.email)
     emp_res = await db.execute(emp_query)
@@ -99,7 +99,7 @@ async def create_service_request(
     """
     Dedicated Service Request CTA (Recruitment, Visa processing, GAMCA Medical/Documentation, Mobilization)
     """
-    await public_submission_limiter.check_rate_limit(request)
+    await public_submission_limiter.check_rate_limit(request, db=db)
     request_obj = ServiceRequest(
         service_type=payload.service_type,
         company_name=payload.company_name,

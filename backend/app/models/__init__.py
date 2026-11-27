@@ -7,6 +7,7 @@ from app.models.inquiry import EmployerInquiry
 from app.models.service_request import ServiceRequest
 from app.models.document import ApplicationDocument
 from app.models.ats_note import ATSNote, AdminUser
+from app.models.rate_limit import RateLimitBucket
 
 __all__ = [
     "Base",
@@ -24,4 +25,5 @@ __all__ = [
     "ApplicationDocument",
     "ATSNote",
     "AdminUser",
+    "RateLimitBucket",
 ]
