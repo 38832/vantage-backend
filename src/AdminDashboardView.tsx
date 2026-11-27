@@ -1280,6 +1280,90 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
         </div>
       </div>
 
+      {/* Candidate Distribution Summaries */}
+      {(() => {
+        const total = applications.length || 1;
+        const categoryMatchers = [
+          { key: 'Technical', keywords: ['welder', 'hvac', 'electrician', 'plumber', 'technician', 'mechanic', 'pipe', 'fitter', 'instrument', 'chiller', 'technical'] },
+          { key: 'Construction', keywords: ['civil', 'mason', 'carpenter', 'steel', 'qa/qc', 'inspector', 'foreman', 'scaffolder', 'construction', 'engineer'] },
+          { key: 'Hospitality', keywords: ['chef', 'cook', 'waiter', 'barista', 'hotel', 'hospitality', 'steward', 'kitchen'] },
+          { key: 'Driver', keywords: ['driver', 'trailer', 'forklift', 'crane', 'logistics', 'transport', 'operator'] },
+          { key: 'Healthcare', keywords: ['nurse', 'caregiver', 'pharmacist', 'lab', 'medical', 'healthcare'] },
+          { key: 'Office & Admin', keywords: ['accountant', 'hr', 'admin', 'document', 'receptionist', 'coordinator', 'office'] },
+        ];
+        const tradeCounts = new Map<string, number>();
+        categoryMatchers.forEach((m) => tradeCounts.set(m.key, 0));
+        const destCounts = new Map<string, number>();
+        applications.forEach((a) => {
+          const roleText = (a.candidate_job_title || a.candidate_role || a.job_title || '').toLowerCase();
+          const matched = categoryMatchers.find((m) => m.keywords.some((kw) => roleText.includes(kw)));
+          const tKey = matched ? matched.key : 'Other Trades';
+          tradeCounts.set(tKey, (tradeCounts.get(tKey) || 0) + 1);
+          const dKey = a.destination_country || a.location_country || 'GCC / Overseas';
+          destCounts.set(dKey, (destCounts.get(dKey) || 0) + 1);
+        });
+        const trades = Array.from(tradeCounts.entries()).sort((a, b) => b[1] - a[1]);
+        const dests = Array.from(destCounts.entries()).sort((a, b) => b[1] - a[1]).slice(0, 6);
+        return (
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-white uppercase tracking-wider">Pool Strength by Trade Category</h3>
+                <span className="text-[11px] text-amber-400 font-semibold">{applications.length} total</span>
+              </div>
+              {trades.map(([label, count]) => {
+                const pct = Math.round((count / total) * 100);
+                const lowSupply = count <= 1;
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => setTradeFilter(label === 'Other Trades' ? '' : label.slice(0, 4))}
+                    className="w-full text-left group"
+                  >
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="font-semibold text-slate-200 group-hover:text-amber-400 transition flex items-center gap-2">
+                        {label}
+                        {lowSupply && <span className="px-1.5 py-0.5 rounded bg-rose-500/15 text-rose-400 border border-rose-500/30 text-[10px]">Needs Ads</span>}
+                      </span>
+                      <span className="text-slate-400 font-mono">{count} ({pct}%)</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                      <div className={`h-full rounded-full ${lowSupply ? 'bg-rose-500' : 'bg-amber-500'}`} style={{ width: `${Math.max(pct, count > 0 ? 5 : 0)}%` }} />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+            <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2.5">
+              <div className="flex items-center justify-between">
+                <h3 className="text-xs font-bold text-white uppercase tracking-wider">Preferred Destination Countries</h3>
+                <span className="text-[11px] text-blue-400 font-semibold">{dests.length} markets</span>
+              </div>
+              {dests.map(([label, count]) => {
+                const pct = Math.round((count / total) * 100);
+                return (
+                  <button
+                    key={label}
+                    type="button"
+                    onClick={() => setDestinationFilter(label)}
+                    className="w-full text-left group"
+                  >
+                    <div className="flex items-center justify-between text-xs mb-1">
+                      <span className="font-semibold text-slate-200 group-hover:text-blue-400 transition">{label}</span>
+                      <span className="text-slate-400 font-mono">{count} ({pct}%)</span>
+                    </div>
+                    <div className="w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                      <div className="h-full bg-blue-500 rounded-full" style={{ width: `${Math.max(pct, count > 0 ? 5 : 0)}%` }} />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Pipeline Filter Bar & Multi-Criteria Advanced Filters */}
       <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-3">
         <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">

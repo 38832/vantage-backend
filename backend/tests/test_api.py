@@ -1081,6 +1081,54 @@ async def test_list_ats_notes_chronological(client, db_session):
 
 
 @pytest.mark.asyncio
+async def test_ats_dashboard_includes_trade_and_destination_distributions(client, db_session):
+    cat_tech = await seed_category(db_session, slug="technical", name="Technical")
+    cat_hosp = await seed_category(db_session, slug="hospitality", name="Hospitality")
+
+    j_saudi = await seed_job(
+        db_session,
+        cat_tech,
+        title="6G Pipe Welder",
+        company_name="Al-Harbi",
+        location_country="Saudi Arabia",
+    )
+    j_uae = await seed_job(
+        db_session,
+        cat_hosp,
+        title="Line Cook",
+        company_name="Dubai Hospitality",
+        location_country="UAE",
+    )
+
+    c1 = Candidate(full_name="Cand Tech 1", phone="+919000000101", email="t1@example.com")
+    c2 = Candidate(full_name="Cand Tech 2", phone="+919000000102", email="t2@example.com")
+    c3 = Candidate(full_name="Cand Hosp 1", phone="+919000000103", email="h1@example.com")
+    db_session.add_all([c1, c2, c3])
+    await db_session.commit()
+    await db_session.refresh(c1)
+    await db_session.refresh(c2)
+    await db_session.refresh(c3)
+    db_session.add_all([
+        Application(candidate_id=c1.id, job_id=j_saudi.id),
+        Application(candidate_id=c2.id, job_id=j_saudi.id),
+        Application(candidate_id=c3.id, job_id=j_uae.id),
+    ])
+    await db_session.commit()
+
+    res = await client.get("/api/admin/dashboard")
+    assert res.status_code == 200
+    data = res.json()["data"]
+
+    trade_dist = {item["label"]: item["count"] for item in data["trade_distribution"]}
+    dest_dist = {item["label"]: item["count"] for item in data["destination_distribution"]}
+
+    assert trade_dist["Technical"] == 2
+    assert trade_dist["Hospitality"] == 1
+    assert dest_dist["Saudi Arabia"] == 2
+    assert dest_dist["UAE"] == 1
+
+
+@pytest.mark.asyncio
 async def test_list_ats_notes_unknown_application_returns_404(client):
     response = await client.get(f"/api/admin/ats/applications/{uuid.uuid4()}/notes")
     assert response.status_code == 404

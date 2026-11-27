@@ -210,6 +210,11 @@ class ApplicationOut(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+class DistributionCountItem(BaseModel):
+    label: str
+    count: int
+
+
 class ATSDashboardStats(BaseModel):
     total_applications: int
     new_applications: int
@@ -224,6 +229,8 @@ class ATSDashboardStats(BaseModel):
     hired: int
     rejected: int
     needs_attention: int = 0
+    trade_distribution: List[DistributionCountItem] = Field(default_factory=list)
+    destination_distribution: List[DistributionCountItem] = Field(default_factory=list)
 
 
 class QuickContactLogPayload(BaseModel):

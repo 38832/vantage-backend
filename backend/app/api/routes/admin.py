@@ -111,6 +111,42 @@ async def get_ats_dashboard_stats(db: AsyncSession = Depends(get_db)):
     attention_res = await db.execute(attention_query)
     needs_attention_count = attention_res.scalar() or 0
 
+    trade_label = func.coalesce(
+        JobCategory.name,
+        Candidate.preferred_job_category,
+        Candidate.current_job_title,
+        "General",
+    )
+    trade_query = (
+        select(trade_label.label("label"), func.count(Application.id).label("cnt"))
+        .select_from(Application)
+        .outerjoin(Candidate, Application.candidate_id == Candidate.id)
+        .outerjoin(Job, Application.job_id == Job.id)
+        .outerjoin(JobCategory, Job.category_id == JobCategory.id)
+        .group_by(trade_label)
+        .order_by(func.count(Application.id).desc())
+        .limit(10)
+    )
+    trade_res = await db.execute(trade_query)
+    trade_distribution = [{"label": row.label, "count": row.cnt} for row in trade_res.all() if row.label]
+
+    dest_label = func.coalesce(
+        Job.location_country,
+        Candidate.preferred_country,
+        "GCC / Overseas",
+    )
+    dest_query = (
+        select(dest_label.label("label"), func.count(Application.id).label("cnt"))
+        .select_from(Application)
+        .outerjoin(Candidate, Application.candidate_id == Candidate.id)
+        .outerjoin(Job, Application.job_id == Job.id)
+        .group_by(dest_label)
+        .order_by(func.count(Application.id).desc())
+        .limit(10)
+    )
+    dest_res = await db.execute(dest_query)
+    destination_distribution = [{"label": row.label, "count": row.cnt} for row in dest_res.all() if row.label]
+
     stats = ATSDashboardStats(
         total_applications=total,
         new_applications=rows.get(ApplicationStatus.new, 0),
@@ -125,6 +161,8 @@ async def get_ats_dashboard_stats(db: AsyncSession = Depends(get_db)):
         hired=rows.get(ApplicationStatus.hired, 0),
         rejected=rows.get(ApplicationStatus.rejected, 0),
         needs_attention=needs_attention_count,
+        trade_distribution=trade_distribution,
+        destination_distribution=destination_distribution,
     )
 
     log_query_details(
