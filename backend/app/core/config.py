@@ -19,6 +19,7 @@ class Settings(BaseSettings):
     candidate_resumes_bucket: str = "candidate-resumes"
     company_documents_bucket: str = "company-documents"
     job_attachments_bucket: str = "job-attachments"
+    mock_storage: bool = False
     
     # CORS & Security Secrets
     allowed_origins: str = (
@@ -61,6 +62,8 @@ class Settings(BaseSettings):
                 raise ValueError("In production, SECRET_KEY must be configured with a strong non-default value.")
             if self.supabase_service_role_key and self.supabase_service_role_key.strip().lower() in weak_placeholders:
                 raise ValueError("In production, SUPABASE_SERVICE_ROLE_KEY cannot use an example placeholder value.")
+            if self.mock_storage:
+                raise ValueError("MOCK_STORAGE cannot be enabled in production.")
         return self
 
     @property

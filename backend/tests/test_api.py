@@ -2114,6 +2114,121 @@ async def test_security_headers_on_error_responses(unauthenticated_client):
     assert "content-security-policy" in res_404.headers
 
 
+# ---------------------------------------------------------------------------
+# C-02: Supabase Storage Failure Surfacing & Explicit MOCK_STORAGE Gate
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_supabase_storage_upload_failure_raises_without_mock_fallback(monkeypatch):
+    from app.services.supabase_storage import StorageUploadError, supabase_storage
+
+    class FailingBucket:
+        def upload(self, **kwargs):
+            raise RuntimeError("Supabase Storage 500")
+
+    class FailingStorage:
+        def from_(self, bucket_name):
+            return FailingBucket()
+
+    class FailingClient:
+        storage = FailingStorage()
+
+    monkeypatch.setattr(supabase_storage, "client", FailingClient())
+
+    with pytest.raises(StorageUploadError, match="Failed to upload"):
+        await supabase_storage.upload_resume(b"%PDF-1.4 data", "cv.pdf", "app-1")
+
+    with pytest.raises(StorageUploadError, match="Failed to upload"):
+        await supabase_storage.upload_document(b"%PDF-1.4 data", "doc.pdf", "company-documents", "app-1")
+
+
+@pytest.mark.asyncio
+async def test_supabase_storage_unconfigured_fails_when_mock_disabled(monkeypatch):
+    from app.core.config import settings
+    from app.services.supabase_storage import StorageUploadError, supabase_storage
+
+    monkeypatch.setattr(supabase_storage, "client", None)
+    monkeypatch.setattr(settings, "mock_storage", False)
+
+    with pytest.raises(StorageUploadError, match="mock storage is disabled"):
+        await supabase_storage.upload_resume(b"%PDF-1.4 data", "cv.pdf", "app-2")
+
+
+@pytest.mark.asyncio
+async def test_quick_apply_multipart_returns_502_and_rolls_back_on_storage_failure(client, db_session, monkeypatch):
+    from sqlalchemy import select
+    from app.core.config import settings
+    from app.services.supabase_storage import supabase_storage
+
+    monkeypatch.setattr(supabase_storage, "client", None)
+    monkeypatch.setattr(settings, "mock_storage", False)
+
+    phone = "+971509998811"
+    response = await client.post(
+        "/api/applications/quick-apply-multipart",
+        data={
+            "full_name": "Storage Failure Candidate",
+            "phone": phone,
+            "email": "fail@example.com",
+            "current_job_title": "Welder",
+            "consent_to_contact": "true",
+        },
+        files={"resume": ("cv.pdf", b"%PDF-1.4 test resume", "application/pdf")},
+    )
+    assert response.status_code == 502
+    assert "storage upload failed" in response.json()["detail"].lower()
+
+    cand_res = await db_session.execute(select(Candidate).where(Candidate.phone == phone))
+    assert cand_res.scalar_one_or_none() is None
+
+
+@pytest.mark.asyncio
+async def test_document_upload_returns_502_on_storage_failure(client, db_session, monkeypatch):
+    from sqlalchemy import select
+    from app.core.config import settings
+    from app.models.document import ApplicationDocument
+    from app.services.supabase_storage import supabase_storage
+
+    application = Application(
+        candidate_id=(await _create_candidate(db_session)).id,
+        application_status=ApplicationStatus.new,
+    )
+    db_session.add(application)
+    await db_session.commit()
+    await db_session.refresh(application)
+
+    monkeypatch.setattr(supabase_storage, "client", None)
+    monkeypatch.setattr(settings, "mock_storage", False)
+
+    response = await client.post(
+        f"/api/applications/{application.id}/documents",
+        data={"document_type": "passport"},
+        files={"file": ("passport.pdf", b"%PDF-1.4 passport data", "application/pdf")},
+    )
+    assert response.status_code == 502
+    assert "storage upload failed" in response.json()["detail"].lower()
+
+    doc_res = await db_session.execute(
+        select(ApplicationDocument).where(ApplicationDocument.application_id == application.id)
+    )
+    assert doc_res.scalar_one_or_none() is None
+
+
+def test_production_rejects_mock_storage():
+    from pydantic import ValidationError
+    from app.core.config import Settings
+
+    with pytest.raises(ValidationError, match="MOCK_STORAGE cannot be enabled in production"):
+        Settings(
+            environment="production",
+            mock_storage=True,
+            jwt_secret="a_cryptographically_strong_production_jwt_secret_value_with_high_entropy_12345",
+            secret_key="a_cryptographically_strong_production_session_secret_key_12345",
+            supabase_service_role_key="eyJh_valid_service_role_key_value",
+        )
+
+
+
 
 
 

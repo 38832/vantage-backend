@@ -8,14 +8,16 @@ from app.db.base import Base
 from app.main import app as fastapi_app
 from app.api.deps import get_db
 from app.core.auth import create_access_token
+from app.core.config import settings
 from app.core.rate_limiter import public_submission_limiter
 import app.models  # Register all models
 import pytest
 
 
 @pytest.fixture(autouse=True)
-def reset_rate_limiter():
+def reset_rate_limiter_and_mock_storage(monkeypatch):
     public_submission_limiter.reset()
+    monkeypatch.setattr(settings, "mock_storage", True)
     yield
     public_submission_limiter.reset()
 

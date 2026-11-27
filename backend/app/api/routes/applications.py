@@ -12,7 +12,7 @@ from app.models.document import ApplicationDocument
 from app.models.job import Job
 from app.schemas.response import ApiResponse
 from app.schemas.application import CandidateApplicationCreate, CandidateResumeOut
-from app.services.supabase_storage import supabase_storage
+from app.services.supabase_storage import supabase_storage, StorageUploadError
 from app.core.file_validator import validate_uploaded_file, MAX_UPLOAD_SIZE_BYTES
 from app.core.rate_limiter import public_submission_limiter
 from app.core.logger import log_mutation_details, log_query_details
@@ -247,12 +247,19 @@ async def quick_apply_multipart(
             declared_content_type=resume.content_type,
             max_size_bytes=MAX_UPLOAD_SIZE_BYTES
         )
-        storage_res = await supabase_storage.upload_resume(
-            file_bytes=file_bytes,
-            filename=safe_filename,
-            application_id=str(application.id),
-            content_type=canonical_mime
-        )
+        try:
+            storage_res = await supabase_storage.upload_resume(
+                file_bytes=file_bytes,
+                filename=safe_filename,
+                application_id=str(application.id),
+                content_type=canonical_mime
+            )
+        except StorageUploadError:
+            await db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_502_BAD_GATEWAY,
+                detail="Resume storage upload failed. Please try again later."
+            )
         resume_url = storage_res.get("signed_url")
         candidate.resume_url = resume_url
         candidate.has_resume = True
@@ -401,12 +408,18 @@ async def upload_application_document(
         declared_content_type=file.content_type,
         max_size_bytes=MAX_UPLOAD_SIZE_BYTES
     )
-    storage_res = await supabase_storage.upload_resume(
-        file_bytes=file_bytes,
-        filename=safe_filename,
-        application_id=str(application_id),
-        content_type=canonical_mime
-    )
+    try:
+        storage_res = await supabase_storage.upload_resume(
+            file_bytes=file_bytes,
+            filename=safe_filename,
+            application_id=str(application_id),
+            content_type=canonical_mime
+        )
+    except StorageUploadError:
+        raise HTTPException(
+            status_code=status.HTTP_502_BAD_GATEWAY,
+            detail="Document storage upload failed. Please try again later."
+        )
 
     doc = ApplicationDocument(
         application_id=application.id,
