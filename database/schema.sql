@@ -175,6 +175,7 @@ CREATE TABLE IF NOT EXISTS applications (
     last_contacted_at TIMESTAMPTZ,
     last_contact_channel TEXT,
     last_contact_outcome TEXT,
+    rejection_reason TEXT,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
     updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );

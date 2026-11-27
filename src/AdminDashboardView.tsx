@@ -101,6 +101,7 @@ export interface ATSApplication {
   last_contacted_at?: string;
   last_contact_channel?: string;
   last_contact_outcome?: string;
+  rejection_reason?: string;
   needs_attention?: boolean;
   days_inactive?: number;
   attention_reason?: string;
@@ -446,24 +447,46 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
     setTimeout(() => setCopiedLink(null), 2000);
   };
 
-  const handleStatusChange = async (appId: string, newStatus: string) => {
+  const REJECTION_REASONS = [
+    'Salary Mismatch',
+    'Document Incomplete',
+    'Experience Mismatch',
+    'Medical / Visa Issue',
+    'Not Interested',
+    'Other',
+  ];
+
+  const handleStatusChange = async (appId: string, newStatus: string, rejectionReason?: string) => {
+    const nextReason = newStatus === 'rejected' ? (rejectionReason || undefined) : undefined;
     setApplications(prev =>
-      prev.map(item => (item.id === appId ? { ...item, application_status: newStatus, status: newStatus } : item))
+      prev.map(item =>
+        item.id === appId
+          ? { ...item, application_status: newStatus, status: newStatus, rejection_reason: nextReason }
+          : item
+      )
     );
     if (selectedApp && selectedApp.id === appId) {
-      setSelectedApp(prev => (prev ? { ...prev, application_status: newStatus, status: newStatus } : null));
+      setSelectedApp(prev =>
+        prev
+          ? { ...prev, application_status: newStatus, status: newStatus, rejection_reason: nextReason }
+          : null
+      );
     }
 
     if (!authToken) return;
 
     try {
+      const payload: Record<string, string> = { application_status: newStatus };
+      if (newStatus === 'rejected' && rejectionReason) {
+        payload.rejection_reason = rejectionReason;
+      }
       const response = await fetch(`http://localhost:8000/api/admin/ats/applications/${appId}`, {
         method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${authToken}`
         },
-        body: JSON.stringify({ application_status: newStatus })
+        body: JSON.stringify(payload)
       });
       if (response.status === 401) {
         clearStaffSession('Your session expired. Sign in again.');
@@ -1584,11 +1607,44 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
                         {/* Status Column */}
                         <td className="py-3.5 px-4">
                           {getStatusBadge(app.application_status || app.status)}
+                          {(app.application_status || app.status) === 'rejected' && app.rejection_reason && (
+                            <div className="mt-1 text-[10px] text-rose-300 font-medium">
+                              Reason: {app.rejection_reason}
+                            </div>
+                          )}
                         </td>
 
                         {/* Actions Column */}
                         <td className="py-3.5 px-4 text-right">
                           <div className="flex items-center justify-end space-x-1.5" onClick={e => e.stopPropagation()}>
+                            {(app.application_status || app.status) !== 'shortlisted' && (
+                              <button
+                                type="button"
+                                onClick={() => handleStatusChange(app.id, 'shortlisted')}
+                                title="Quick Shortlist"
+                                className="px-2 py-1 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 rounded-lg text-[11px] font-bold border border-amber-500/30 transition"
+                              >
+                                Shortlist
+                              </button>
+                            )}
+                            <select
+                              aria-label={`Reject ${candidateName} with reason`}
+                              defaultValue=""
+                              onChange={e => {
+                                if (e.target.value) {
+                                  handleStatusChange(app.id, 'rejected', e.target.value);
+                                  e.target.value = '';
+                                }
+                              }}
+                              className="bg-rose-500/10 text-rose-300 border border-rose-500/30 rounded-lg px-1.5 py-1 text-[11px] font-semibold focus:outline-none cursor-pointer"
+                            >
+                              <option value="" className="bg-slate-900">Reject ▾</option>
+                              {REJECTION_REASONS.map(reason => (
+                                <option key={reason} value={reason} className="bg-slate-900 text-white">
+                                  {reason}
+                                </option>
+                              ))}
+                            </select>
                             {whatsappUrl && (
                               <a
                                 href={whatsappUrl}

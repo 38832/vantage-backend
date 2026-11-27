@@ -157,6 +157,7 @@ EXPORT_HEADERS = [
     "Last Contacted",
     "Contact Channel",
     "Contact Outcome",
+    "Rejection Reason",
     "Applied Date",
 ]
 
@@ -306,6 +307,7 @@ def _application_to_export_row(app: Application) -> List[str]:
         app.last_contacted_at.strftime("%Y-%m-%d %H:%M") if app.last_contacted_at else "",
         app.last_contact_channel or "",
         app.last_contact_outcome or "",
+        app.rejection_reason or "",
         applied_date,
     ]
     return [_sanitize_spreadsheet_cell(val) for val in raw_values]
@@ -613,6 +615,7 @@ async def list_ats_applications(
                 last_contacted_at=app.last_contacted_at,
                 last_contact_channel=app.last_contact_channel,
                 last_contact_outcome=app.last_contact_outcome,
+                rejection_reason=app.rejection_reason,
                 needs_attention=needs_attention,
                 days_inactive=days_inactive,
                 attention_reason=attention_reason,
@@ -761,6 +764,21 @@ async def update_application_status(
             changes_diff[field] = (old_val_display, new_val_display)
         setattr(app, field, new_val)
 
+    if payload.application_status is not None and payload.application_status != ApplicationStatus.rejected:
+        if "rejection_reason" not in update_dict:
+            app.rejection_reason = None
+
+    if payload.application_status == ApplicationStatus.rejected and payload.rejection_reason and payload.rejection_reason.strip():
+        reason_text = payload.rejection_reason.strip()
+        app.rejection_reason = reason_text
+        db.add(
+            ATSNote(
+                application_id=application_id,
+                author_name="Recruiter Admin",
+                note=f"[Rejected] Reason: {reason_text}",
+            )
+        )
+
     await db.commit()
     await db.refresh(app)
 
@@ -778,6 +796,7 @@ async def update_application_status(
         "application_status": app.application_status.value,
         "recruiter_assigned": app.recruiter_assigned,
         "interview_date": app.interview_date,
+        "rejection_reason": app.rejection_reason,
         "message": "Application updated successfully"
     })
 

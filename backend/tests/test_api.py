@@ -986,6 +986,65 @@ async def test_admin_duplicate_job_unauthenticated_returns_401(unauthenticated_c
 
 
 @pytest.mark.asyncio
+async def test_ats_quick_shortlist_and_reason_based_rejection(client, db_session):
+    from sqlalchemy import select
+    from app.models.ats_note import ATSNote
+
+    candidate = await _create_candidate(db_session)
+    application = Application(candidate_id=candidate.id, application_status=ApplicationStatus.new)
+    db_session.add(application)
+    await db_session.commit()
+    await db_session.refresh(application)
+
+    # 1. Reason-based rejection
+    res_reject = await client.patch(
+        f"/api/admin/ats/applications/{application.id}",
+        json={"application_status": "rejected", "rejection_reason": "Salary Mismatch"},
+    )
+    assert res_reject.status_code == 200
+    rej_data = res_reject.json()["data"]
+    assert rej_data["application_status"] == "rejected"
+    assert rej_data["rejection_reason"] == "Salary Mismatch"
+
+    # Verify ATSNote created
+    notes_res = await db_session.execute(select(ATSNote).where(ATSNote.application_id == application.id))
+    notes = notes_res.scalars().all()
+    assert len(notes) == 1
+    assert "Salary Mismatch" in notes[0].note
+
+    # Verify list endpoint returns rejection_reason
+    list_res = await client.get("/api/admin/ats/applications")
+    assert list_res.status_code == 200
+    listed = next(item for item in list_res.json()["data"] if item["id"] == str(application.id))
+    assert listed["rejection_reason"] == "Salary Mismatch"
+
+    # 2. Quick shortlist clears rejection_reason
+    res_shortlist = await client.patch(
+        f"/api/admin/ats/applications/{application.id}",
+        json={"application_status": "shortlisted"},
+    )
+    assert res_shortlist.status_code == 200
+    sl_data = res_shortlist.json()["data"]
+    assert sl_data["application_status"] == "shortlisted"
+    assert sl_data["rejection_reason"] is None
+
+
+@pytest.mark.asyncio
+async def test_ats_rejection_reason_too_long_returns_422(client, db_session):
+    candidate = await _create_candidate(db_session)
+    application = Application(candidate_id=candidate.id)
+    db_session.add(application)
+    await db_session.commit()
+    await db_session.refresh(application)
+
+    response = await client.patch(
+        f"/api/admin/ats/applications/{application.id}",
+        json={"application_status": "rejected", "rejection_reason": "x" * 121},
+    )
+    assert response.status_code == 422
+
+
+@pytest.mark.asyncio
 async def test_add_ats_note(client, db_session):
     candidate = await _create_candidate(db_session)
     application = Application(candidate_id=candidate.id)

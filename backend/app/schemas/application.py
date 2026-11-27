@@ -122,6 +122,7 @@ class ApplicationUpdate(BaseModel):
     medical_status: Optional[str] = None
     visa_status: Optional[str] = None
     notes: Optional[str] = None
+    rejection_reason: Optional[str] = Field(None, max_length=120)
 
 
 class BulkApplicationStatusUpdate(BaseModel):
@@ -196,6 +197,7 @@ class ApplicationOut(BaseModel):
     last_contacted_at: Optional[datetime] = None
     last_contact_channel: Optional[str] = None
     last_contact_outcome: Optional[str] = None
+    rejection_reason: Optional[str] = None
 
     # Resumes and documents
     resume_url: Optional[str] = None
