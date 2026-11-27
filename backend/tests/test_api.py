@@ -50,8 +50,37 @@ async def seed_job(db, category, **overrides):
 async def test_health(client):
     response = await client.get("/api/health")
     assert response.status_code == 200
-    assert response.json()["status"] == "ok"
-    assert response.json()["service"] == "ugetjob-backend"
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["service"] == "ugetjob-backend"
+    assert body["database"] == "ok"
+
+
+@pytest.mark.asyncio
+async def test_health_returns_503_when_db_unreachable(unauthenticated_client):
+    from app.api.deps import get_db
+    from app.main import app as fastapi_app
+
+    class BrokenSession:
+        async def execute(self, *args, **kwargs):
+            raise RuntimeError("DB connection refused")
+
+    async def override_broken_db():
+        yield BrokenSession()
+
+    previous_override = fastapi_app.dependency_overrides.get(get_db)
+    fastapi_app.dependency_overrides[get_db] = override_broken_db
+    try:
+        response = await unauthenticated_client.get("/api/health")
+        assert response.status_code == 503
+        body = response.json()
+        assert body["status"] == "error"
+        assert body["database"] == "unreachable"
+    finally:
+        if previous_override is not None:
+            fastapi_app.dependency_overrides[get_db] = previous_override
+        else:
+            fastapi_app.dependency_overrides.pop(get_db, None)
 
 
 @pytest.mark.asyncio
