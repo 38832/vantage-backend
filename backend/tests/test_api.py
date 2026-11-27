@@ -1129,6 +1129,49 @@ async def test_ats_dashboard_includes_trade_and_destination_distributions(client
 
 
 @pytest.mark.asyncio
+async def test_ats_dashboard_includes_pipeline_funnel(client, db_session):
+    c1 = Candidate(full_name="Funnel New", phone="+919000000201", email="fn1@example.com")
+    c2 = Candidate(full_name="Funnel Short 1", phone="+919000000202", email="fs1@example.com")
+    c3 = Candidate(full_name="Funnel Short 2", phone="+919000000203", email="fs2@example.com")
+    c4 = Candidate(full_name="Funnel Interview", phone="+919000000204", email="fi1@example.com")
+    c5 = Candidate(full_name="Funnel Medical", phone="+919000000205", email="fm1@example.com")
+    c6 = Candidate(full_name="Funnel Hired", phone="+919000000206", email="fh1@example.com")
+    db_session.add_all([c1, c2, c3, c4, c5, c6])
+    await db_session.commit()
+    for c in (c1, c2, c3, c4, c5, c6):
+        await db_session.refresh(c)
+
+    db_session.add_all([
+        Application(candidate_id=c1.id, application_status=ApplicationStatus.new),
+        Application(candidate_id=c2.id, application_status=ApplicationStatus.shortlisted),
+        Application(candidate_id=c3.id, application_status=ApplicationStatus.shortlisted),
+        Application(candidate_id=c4.id, application_status=ApplicationStatus.interview_scheduled),
+        Application(candidate_id=c5.id, application_status=ApplicationStatus.medical_pending),
+        Application(candidate_id=c6.id, application_status=ApplicationStatus.hired),
+    ])
+    await db_session.commit()
+
+    res = await client.get("/api/admin/dashboard")
+    assert res.status_code == 200
+    funnel = res.json()["data"]["pipeline_funnel"]
+    assert [s["key"] for s in funnel] == [
+        "new_applied",
+        "shortlisted",
+        "interview_set",
+        "medical_visa",
+        "deployed",
+    ]
+    by_key = {s["key"]: s for s in funnel}
+    assert by_key["new_applied"]["count"] == 1
+    assert by_key["shortlisted"]["count"] == 2
+    assert by_key["interview_set"]["count"] == 1
+    assert by_key["medical_visa"]["count"] == 1
+    assert by_key["deployed"]["count"] == 1
+    assert by_key["shortlisted"]["is_bottleneck"] is True
+    assert by_key["deployed"]["is_bottleneck"] is False
+
+
+@pytest.mark.asyncio
 async def test_list_ats_notes_unknown_application_returns_404(client):
     response = await client.get(f"/api/admin/ats/applications/{uuid.uuid4()}/notes")
     assert response.status_code == 404

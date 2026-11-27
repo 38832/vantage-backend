@@ -215,6 +215,14 @@ class DistributionCountItem(BaseModel):
     count: int
 
 
+class PipelineFunnelStage(BaseModel):
+    key: str
+    label: str
+    count: int
+    share_percent: float = 0.0
+    is_bottleneck: bool = False
+
+
 class ATSDashboardStats(BaseModel):
     total_applications: int
     new_applications: int
@@ -231,6 +239,7 @@ class ATSDashboardStats(BaseModel):
     needs_attention: int = 0
     trade_distribution: List[DistributionCountItem] = Field(default_factory=list)
     destination_distribution: List[DistributionCountItem] = Field(default_factory=list)
+    pipeline_funnel: List[PipelineFunnelStage] = Field(default_factory=list)
 
 
 class QuickContactLogPayload(BaseModel):

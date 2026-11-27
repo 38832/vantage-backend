@@ -1280,6 +1280,72 @@ export function AdminDashboardView({ onCopy }: { onCopy: (text: string) => void;
         </div>
       </div>
 
+      {/* Visual Recruitment Pipeline Funnel */}
+      {(() => {
+        const total = applications.length;
+        const stages = [
+          { key: 'new_applied', label: 'New Applied', filterVal: 'new', statuses: ['new', 'contacted'] },
+          { key: 'shortlisted', label: 'Shortlisted', filterVal: 'shortlisted', statuses: ['shortlisted'] },
+          { key: 'interview_set', label: 'Interview Set', filterVal: 'interview_scheduled', statuses: ['interview_scheduled', 'interviewed'] },
+          { key: 'medical_visa', label: 'Medical & Visa', filterVal: 'medical_pending', statuses: ['document_pending', 'medical_pending', 'visa_pending', 'visa_approved'] },
+          { key: 'deployed', label: 'Deployed', filterVal: 'hired', statuses: ['hired'] },
+        ].map((st) => ({
+          ...st,
+          count: applications.filter((a) => st.statuses.includes(a.application_status || a.status || 'new')).length,
+        }));
+        const maxBacklog = Math.max(...stages.filter((s) => s.key !== 'deployed').map((s) => s.count), 0);
+        const deployedCount = stages.find((s) => s.key === 'deployed')?.count || 0;
+        const convPct = total > 0 ? Math.round((deployedCount / total) * 1000) / 10 : 0;
+        return (
+          <div className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <div>
+                <h3 className="text-xs font-bold text-white uppercase tracking-wider">Visual Recruitment Pipeline Funnel</h3>
+                <p className="text-[11px] text-slate-400">New Applied → Shortlisted → Interview Set → Medical &amp; Visa → Deployed</p>
+              </div>
+              <span className="px-2.5 py-0.5 rounded-full text-[11px] font-semibold bg-emerald-500/15 text-emerald-400 border border-emerald-500/30">
+                {convPct}% deployed ({deployedCount}/{total})
+              </span>
+            </div>
+            <div className="grid grid-cols-2 sm:grid-cols-5 gap-2.5">
+              {stages.map((st, idx) => {
+                const share = total > 0 ? Math.round((st.count / total) * 1000) / 10 : 0;
+                const isBottleneck = st.key !== 'deployed' && maxBacklog > 0 && st.count === maxBacklog;
+                return (
+                  <button
+                    key={st.key}
+                    type="button"
+                    onClick={() => setStatusFilter(st.filterVal)}
+                    className={`text-left rounded-xl border p-3 transition ${
+                      isBottleneck
+                        ? 'border-rose-500/40 bg-rose-500/10 hover:border-rose-400'
+                        : 'border-slate-800 bg-slate-950/60 hover:border-amber-500/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-1">
+                      <span className="text-[10px] font-bold uppercase text-slate-400">{idx + 1}. {st.label}</span>
+                      {isBottleneck && (
+                        <span className="px-1.5 py-0.5 rounded bg-rose-500/20 text-rose-300 border border-rose-500/30 text-[9px] font-bold">Bottleneck</span>
+                      )}
+                    </div>
+                    <div className="mt-1.5 flex items-baseline justify-between">
+                      <span className="text-xl font-black text-white">{st.count}</span>
+                      <span className="text-[11px] font-mono text-slate-400">{share}%</span>
+                    </div>
+                    <div className="mt-2 w-full h-1.5 bg-slate-800 rounded-full overflow-hidden">
+                      <div
+                        className={`h-full rounded-full ${st.key === 'deployed' ? 'bg-emerald-500' : (isBottleneck ? 'bg-rose-500' : 'bg-amber-500')}`}
+                        style={{ width: `${Math.max(share, st.count > 0 ? 8 : 0)}%` }}
+                      />
+                    </div>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+        );
+      })()}
+
       {/* Candidate Distribution Summaries */}
       {(() => {
         const total = applications.length || 1;

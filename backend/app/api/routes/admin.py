@@ -147,6 +147,38 @@ async def get_ats_dashboard_stats(db: AsyncSession = Depends(get_db)):
     dest_res = await db.execute(dest_query)
     destination_distribution = [{"label": row.label, "count": row.cnt} for row in dest_res.all() if row.label]
 
+    funnel_spec = [
+        ("new_applied", "New Applied", (ApplicationStatus.new, ApplicationStatus.contacted)),
+        ("shortlisted", "Shortlisted", (ApplicationStatus.shortlisted,)),
+        ("interview_set", "Interview Set", (ApplicationStatus.interview_scheduled, ApplicationStatus.interviewed)),
+        (
+            "medical_visa",
+            "Medical & Visa",
+            (
+                ApplicationStatus.document_pending,
+                ApplicationStatus.medical_pending,
+                ApplicationStatus.visa_pending,
+                ApplicationStatus.visa_approved,
+            ),
+        ),
+        ("deployed", "Deployed", (ApplicationStatus.hired,)),
+    ]
+    funnel_counts = [
+        (key, label, sum(rows.get(st, 0) for st in statuses))
+        for key, label, statuses in funnel_spec
+    ]
+    max_active_backlog = max((cnt for key, _, cnt in funnel_counts if key != "deployed"), default=0)
+    pipeline_funnel = [
+        {
+            "key": key,
+            "label": label,
+            "count": cnt,
+            "share_percent": round((cnt / total) * 100, 1) if total > 0 else 0.0,
+            "is_bottleneck": (key != "deployed" and max_active_backlog > 0 and cnt == max_active_backlog),
+        }
+        for key, label, cnt in funnel_counts
+    ]
+
     stats = ATSDashboardStats(
         total_applications=total,
         new_applications=rows.get(ApplicationStatus.new, 0),
@@ -163,6 +195,7 @@ async def get_ats_dashboard_stats(db: AsyncSession = Depends(get_db)):
         needs_attention=needs_attention_count,
         trade_distribution=trade_distribution,
         destination_distribution=destination_distribution,
+        pipeline_funnel=pipeline_funnel,
     )
 
     log_query_details(
